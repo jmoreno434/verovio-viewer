@@ -1,89 +1,69 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <title>Visor Verovio App</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <title>Visor Verovio App (self-hosted raíz)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body { margin: 0; font-family: system-ui, sans-serif; background: #f0f0f0; }
-    header { padding: 1rem; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-    .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-    #app { margin: 1rem; border: 1px solid #ccc; min-height: 600px; background: #fff; }
-    input, button { padding: 0.5rem; font-size: 1rem; }
+    body { margin:0; font-family:system-ui,sans-serif; background:#fafafa }
+    header { padding:1rem; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.1) }
+    #app { margin:1rem; border:1px solid #ccc; min-height:600px; background:#fff }
+    input, button { padding:.5rem; font-size:1rem }
   </style>
 </head>
 <body>
-
   <header>
-    <div class="controls">
-      <label>
-        <strong>Archivo MEI/XML/MXL:</strong>
-        <input id="fileInput" type="file" accept=".mei,.xml,.musicxml,.mxl" />
-      </label>
-      <button id="loadFile">Cargar archivo</button>
-
-      <label>
-        <strong>o URL:</strong>
-        <input id="urlInput" type="url" placeholder="https://.../partitura.mei" size="30" />
-      </label>
-      <button id="loadURL">Cargar URL</button>
-    </div>
+    <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl">
+    <button id="loadFile">Cargar archivo</button>
   </header>
-
   <div id="app"></div>
 
-  <script type="module">
-    // Importa la UI de Verovio App como módulo ES
-    import 'https://editor.verovio.org/javascript/app/verovio-app.js';
+  <!-- 1) Dile al loader dónde buscar el .wasm (ahora en raíz) -->
+  <script>
+    window.verovio = window.verovio || {};
+    verovio.module = verovio.module || {};
+    verovio.module.locateFile = (path) => path;
+  </script>
 
-    // Crea la instancia en el div #app
-    const container = document.getElementById('app');
-    const app = new Verovio.App(container, {
-      defaultView: 'document',   // vista tipo documento
-      documentZoom: 4            // zoom inicial
+  <!-- 2) Toolkit WASM (ahora servido desde la raíz) -->
+  <script src="verovio-toolkit-wasm.js" defer></script>
+
+  <!-- 3) App UI (ahora servido desde la raíz) -->
+  <script type="module" src="verovio-app.js"></script>
+
+  <!-- 4) Lógica de carga -->
+  <script type="module">
+    // Crea la instancia de la app
+    const app = new Verovio.App(document.getElementById('app'), {
+      defaultView: 'document',
+      documentZoom: 4
     });
 
-    // Utilidades para cargar datos
+    // Funciones auxiliares
     async function loadText(text) {
       await app.loadData(text);
     }
-
     async function loadMXL(buffer) {
-      // para .mxl (zip), convierte a MEI primero
-      const toolkit = app.toolkit;
-      toolkit.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
-      const mei = toolkit.getMEI({});
+      const tk = app.toolkit;
+      tk.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
+      const mei = tk.getMEI({});
       await app.loadData(mei);
     }
 
-    // Manejadores
+    // Manejador del botón
     document.getElementById('loadFile').addEventListener('click', async () => {
-      const f = document.getElementById('fileInput').files[0];
+      const f = document.getElementById('file').files[0];
       if (!f) return alert('Selecciona un archivo primero');
       const name = f.name.toLowerCase();
+      const buf = await f.arrayBuffer();
       if (name.endsWith('.mxl')) {
-        const buf = await f.arrayBuffer();
         await loadMXL(buf);
       } else {
-        const txt = await f.text();
-        await loadText(txt);
-      }
-    });
-
-    document.getElementById('loadURL').addEventListener('click', async () => {
-      const url = document.getElementById('urlInput').value.trim();
-      if (!url) return alert('Escribe una URL');
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Error HTTP ${res.status}`);
-      const name = url.toLowerCase();
-      if (name.endsWith('.mxl')) {
-        const buf = await res.arrayBuffer();
-        await loadMXL(buf);
-      } else {
-        const txt = await res.text();
-        await loadText(txt);
+        const text = new TextDecoder().decode(buf);
+        await loadText(text);
       }
     });
   </script>
 </body>
 </html>
+
