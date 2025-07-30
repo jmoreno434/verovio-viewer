@@ -16,7 +16,7 @@ Visualizador de partituras MEI / MusicXML (y MXL) **100% en el navegador** usand
 
 > La primera publicación puede tardar 1–2 minutos.
 
-## Uso
+## Uso jh
 
 - Abre la URL publicada.  
 - Carga un archivo **.mei**, **.xml/.musicxml** o **.mxl** (MusicXML comprimido) con el botón **Cargar archivo**.  
