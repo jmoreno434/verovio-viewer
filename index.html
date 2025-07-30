@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Verovio – Solo cliente (MEI / MusicXML / MXL)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Script clásico (no módulo) -->
+  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
+  <style>
+    :root { --pad: 16px; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #fafafa; }
+    header { padding: var(--pad); background: #fff; position: sticky; top: 0; border-bottom: 1px solid #ddd; }
+    .row, .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input[type="file"] { max-width: 320px; }
+    textarea { width: min(900px,95vw); height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .board { margin: var(--pad); background: #fff; border: 1px solid #ddd; min-height: 400px; }
+    .status { font-size: 14px; color: #555; min-height: 1.2em; }
+    button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="controls">
+      <label><strong>Archivo</strong>:
+        <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl" />
+      </label>
+      <button id="btnFile">Cargar archivo</button>
+
+      <button id="btnTogglePaste">Pegar texto</button>
+      <button id="btnEjemplo">Cargar ejemplo</button>
+      <button id="btnLimpiar">Limpiar</button>
+
+      <span id="status" class="status">Inicializando Verovio…</span>
+    </div>
+
+    <div id="pasteZone" class="controls" style="display:none;">
+      <textarea id="txt" placeholder="Pega aquí MEI o MusicXML (no .mxl comprimido)"></textarea>
+      <button id="btnCargarTexto">Renderizar texto</button>
+    </div>
+
+    <div class="controls" style="margin-top:8px;">
+      <button id="prev">◀ Prev</button>
+      <span id="pageInfo">—</span>
+      <button id="next">Next ▶</button>
+      <button id="zoomOut">–</button>
+      <span>Zoom</span>
+      <button id="zoomIn">+</button>
+    </div>
+  </header>
+
+  <div id="score" class="board"></div>
+
+  <script>
+    // === Ejemplo embebido (evita CORS) ===
+    const DEMO_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Demo</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><rest/><duration>1</duration><type>quarter</type></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    // === Referencias UI ===
+    const $file = document.getElementById('file');
+    const $btnFile = document.getElementById('btnFile');
+    const $status = document.getElementById('status');
+    const $pasteZone = document.getElementById('pasteZone');
+    const $btnTogglePaste = document.getElementById('btnTogglePaste');
+    const $btnCargarTexto = document.getElementById('btnCargarTexto');
+    const $txt = document.getElementById('txt');
+    const $btnEjemplo = document.getElementById('btnEjemplo');
+    const $btnLimpiar = document.getElementById('btnLimpiar');
+    const $score = document.getElementById('score');
+    const $prev = document.getElementById('prev');
+    const $next = document.getElementById('next');
+    const $pageInfo = document.getElementById('pageInfo');
+    const $zoomIn = document.getElementById('zoomIn');
+    const $zoomOut = document.getElementById('zoomOut');
+
+    // === Estado Verovio ===
+    let tk = null;               // toolkit
+    let page = 1;                // página actual
+    let zoom = 40;               // escala
+    let pageCount = 1;
+
+    const setStatus = (msg='') => { $status.textContent = msg; };
+    const isMXL = (name='') => name.toLowerCase().endsWith('.mxl');
+
+    // === Inicialización WASM con watchdog de diagnóstico ===
+    const tkReady = new Promise((resolve) => {
+      window.verovio = window.verovio || {};
+      verovio.module = verovio.module || {};
+
+      // Si en 8s no inicializa, muy probablemente CORS del .wasm
+      const watchdog = setTimeout(() => {
+        const msg = '⚠️ Verovio no se pudo inicializar. '
+          + 'Si abriste este archivo como file://, el navegador puede bloquear la descarga del .wasm por CORS. '
+          + 'Ábrelo bajo http(s) (GitHub Pages/Netlify) o, para pruebas locales, lanza Chrome con '
+          + '--disable-web-security --user-data-dir --allow-file-access-from-files.';
+        setStatus(msg);
+        console.warn(msg);
+      }, 8000);
+
+      verovio.module.onRuntimeInitialized = () => {
+        clearTimeout(watchdog);
+        try {
+          tk = new verovio.toolkit({
+            scale: zoom,
+            pageWidth: 2100,
+            pageHeight: 2970
+          });
+          setStatus('Listo. Carga un archivo, pega texto o usa el ejemplo.');
+          resolve();
+        } catch (e) {
+          console.error('Fallo creando el toolkit:', e);
+          setStatus('Error iniciando Verovio (ver consola).');
+        }
+      };
+    });
+
+    // === Utilidades de render ===
+    async function renderPage() {
+      await tkReady;
+      if (!tk) return;
+      const svg = tk.renderToSVG(page, {});
+      $score.innerHTML = svg;
+      pageCount = tk.getPageCount();
+      updateNav();
+    }
+
+    function updateNav() {
+      $pageInfo.textContent = `Página ${page} / ${pageCount}`;
+      $prev.disabled = page <= 1;
+      $next.disabled = page >= pageCount;
+    }
+
+    async function loadText(text) {
+      await tkReady;
+      if (!tk) return setStatus('Verovio no está listo.');
+      setStatus('Renderizando…');
+      tk.loadData(text);         // MEI o MusicXML (texto)
+      page = 1;
+      await renderPage();
+      setStatus('Listo');
+    }
+
+    async function loadMXL(buffer) {
+      await tkReady;
+      if (!tk) return setStatus('Verovio no está listo.');
+      setStatus('Procesando .mxl…');
+      const bytes = new Uint8Array(buffer);
+      const ok = tk.loadZipDataBuffer(bytes, bytes.length);
+      if (!ok) throw new Error('MXL no reconocido');
+      page = 1;
+      await renderPage();
+      setStatus('Listo');
+    }
+
+    // === Interacciones UI ===
+    $file.addEventListener('change', () => {
+      setStatus($file.files?.[0] ? `Archivo: ${$file.files[0].name}` : '');
+    });
+
+    $btnFile.addEventListener('click', async () => {
+      const f = $file.files?.[0];
+      if (!f) return setStatus('Selecciona un archivo primero.');
+      try {
+        if (isMXL(f.name)) {
+          const buf = await f.arrayBuffer();
+          await loadMXL(buf);
+        } else {
+          const txt = await f.text();
+          await loadText(txt);
+        }
+      } catch (e) {
+        console.error(e);
+        setStatus('Error: ' + (e?.message || e));
+        $score.textContent = 'No se pudo renderizar la partitura.';
+      }
+    });
+
+    $btnTogglePaste.addEventListener('click', () => {
+      $pasteZone.style.display = $pasteZone.style.display === 'none' ? 'block' : 'none';
+    });
+
+    $btnCargarTexto.addEventListener('click', async () => {
+      const val = $txt.value.trim();
+      if (!val) return setStatus('Pega contenido primero.');
+      try { await loadText(val); }
+      catch (e) { console.error(e); setStatus('Error: ' + (e?.message || e)); }
+    });
+
+    // Ejemplo embebido (sin fetch)
+    $btnEjemplo.addEventListener('click', async () => {
+      try { await loadText(DEMO_MUSICXML); }
+      catch (e) { console.error(e); setStatus('Error al cargar el ejemplo.'); }
+    });
+
+    $btnLimpiar.addEventListener('click', () => {
+      $score.innerHTML = '';
+      $file.value = '';
+      setStatus('');
+      page = 1;
+      pageCount = 1;
+      updateNav();
+    });
+
+    // Navegación y zoom
+    $prev.addEventListener('click', async () => { if (page > 1) { page--; await renderPage(); } });
+    $next.addEventListener('click', async () => { if (page < pageCount) { page++; await renderPage(); } });
+    $zoomIn.addEventListener('click', async () => {
+      await tkReady;
+      if (!tk) return;
+      zoom = Math.min(zoom + 5, 120);
+      tk.setOptions({ scale: zoom });
+      await renderPage();
+    });
+    $zoomOut.addEventListener('click', async () => {
+      await tkReady;
+      if (!tk) return;
+      zoom = Math.max(zoom - 5, 20);
+      tk.setOptions({ scale: zoom });
+      await renderPage();
+    });
+
+    // API opcional para usar desde otra app:
+    // window.cargarMusicXML('<score-partwise>...</score-partwise>');
+    window.cargarMusicXML = (xmlString) => loadText(xmlString);
+  </script>
+</body>
+</html>
