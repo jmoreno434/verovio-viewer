@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Visor Verovio App (self-hosted raíz)</title>
+  <title>Visor Verovio App</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     body { margin:0; font-family:system-ui,sans-serif; background:#fafafa }
@@ -18,31 +18,29 @@
   </header>
   <div id="app"></div>
 
-  <!-- 1) Dile al loader dónde buscar el .wasm (ahora en raíz) -->
+  <!-- 1) Dile al loader dónde está el .wasm -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    verovio.module.locateFile = (path) => path;
+    // locateFile recibe el nombre tal cual (ej: "verovio-toolkit-wasm.wasm")
+    verovio.module.locateFile = path => path;
   </script>
 
-  <!-- 2) Toolkit WASM (ahora servido desde la raíz) -->
+  <!-- 2) Carga el toolkit WASM (en la raíz) -->
   <script src="verovio-toolkit-wasm.js" defer></script>
 
-  <!-- 3) App UI (ahora servido desde la raíz) -->
+  <!-- 3) Carga la UI de la App (módulo ES) -->
   <script type="module" src="verovio-app.js"></script>
 
-  <!-- 4) Lógica de carga -->
+  <!-- 4) Lógica para cargar tu fichero -->
   <script type="module">
-    // Crea la instancia de la app
-    const app = new Verovio.App(document.getElementById('app'), {
+    // Espera a que verovio-app.js defina Verovio.App
+    const container = document.getElementById('app');
+    const app = new Verovio.App(container, {
       defaultView: 'document',
       documentZoom: 4
     });
 
-    // Funciones auxiliares
-    async function loadText(text) {
-      await app.loadData(text);
-    }
     async function loadMXL(buffer) {
       const tk = app.toolkit;
       tk.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
@@ -50,7 +48,10 @@
       await app.loadData(mei);
     }
 
-    // Manejador del botón
+    async function loadText(text) {
+      await app.loadData(text);
+    }
+
     document.getElementById('loadFile').addEventListener('click', async () => {
       const f = document.getElementById('file').files[0];
       if (!f) return alert('Selecciona un archivo primero');
@@ -59,11 +60,10 @@
       if (name.endsWith('.mxl')) {
         await loadMXL(buf);
       } else {
-        const text = new TextDecoder().decode(buf);
-        await loadText(text);
+        const txt = new TextDecoder().decode(buf);
+        await loadText(txt);
       }
     });
   </script>
 </body>
 </html>
-
