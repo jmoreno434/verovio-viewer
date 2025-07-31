@@ -1,45 +1,45 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>OSMD: MusicXML → SVG (carga local)</title>
-  <!-- OSMD desde jsDelivr -->
-  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.0/build/opensheetmusicdisplay.min.js"></script>
+  <meta charset="utf-8" />
+  <title>Embed de Soundslice</title>
   <style>
-    body { font-family: sans-serif; padding: 1rem; }
-    #sheet { border: 1px solid #ccc; padding: 1rem; margin-top: 1rem; }
+    body { font-family: system-ui, sans-serif; padding: 1rem; }
+    #player { width: 100%; height: 520px; border: 0; }
+    .controls { margin-top: .75rem; display: flex; gap: .5rem; }
   </style>
 </head>
 <body>
 
-  <h1>Renderiza tu MusicXML</h1>
-  <input type="file" id="fileInput" accept=".xml,.musicxml" />
-  <div id="sheet"></div>
+  <!-- Reemplaza SLICEHASH por el hash de tu slice -->
+  <iframe
+    id="ssembed"
+    src="https://www.soundslice.com/slices/SLICEHASH/embed/?show_tab=0&speed=80&keyboard=1"
+    allowfullscreen
+    frameborder="0"
+    referrerpolicy="strict-origin-when-cross-origin"
+    title="Soundslice"
+    class="player"
+    style="width:100%; height:520px">
+  </iframe>
+
+  <!-- Controles opcionales con la JavaScript API -->
+  <div class="controls">
+    <button id="play">▶️ Play</button>
+    <button id="pause">⏸️ Pause</button>
+  </div>
 
   <script>
-    // 1) Instancia OSMD apuntando al contenedor
-    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
-      document.getElementById("sheet")
-    );
+    const ORIGIN = "https://www.soundslice.com";
+    const ssiframe = document.getElementById("ssembed").contentWindow;
 
-    // 2) Cuando el usuario seleccione un archivo...
-    document.getElementById("fileInput").addEventListener("change", e => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      // 3) Leer como ArrayBuffer
-      const reader = new FileReader();
-      reader.onload = () => {
-        const arrayBuffer = reader.result;
-        // 4) Cargar y renderizar
-        osmd.load(arrayBuffer)
-          .then(() => osmd.render())
-          .catch(err => console.error("Error renderizando:", err));
-      };
-      reader.readAsArrayBuffer(file);
-    });
+    document.getElementById("play").onclick = () => {
+      ssiframe.postMessage('{"method":"play"}', ORIGIN);
+    };
+    document.getElementById("pause").onclick = () => {
+      ssiframe.postMessage('{"method":"pause"}', ORIGIN);
+    };
   </script>
 
 </body>
 </html>
-
