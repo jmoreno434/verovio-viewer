@@ -1,21 +1,108 @@
-<div class="panel-body">
-    <div id="app" class="panel" style="border: 1px solid lightgray; min-height: 800px;"></div>
-</div>
- 
-<script type="module">
-import 'https://editor.verovio.org/javascript/app/verovio-app.js';
- 
-    // Create the app - here with an empty option object
-const app = new Verovio.App(document.getElementById("app"), {});
- 
-    // Load a file (MEI or MusicXML)
-fetch("https://www.verovio.org/editor/brahms.mei")
-        .then(function(response) {
-            return response.text();
-        })
-        .then(function(text) {
-            app.loadData(text);
-        });
-</script>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Verovio – Visor simple</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; font-family: system-ui, Arial, sans-serif; background:#fafafa; }
+    header { padding:16px; background:#fff; border-bottom:1px solid #ddd; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    #score { margin:16px; min-height:400px; background:#fff; border:1px solid #ddd; }
+    .status { font-size:14px; color:#555; min-height:1.2em; }
+  </style>
+
+  <!-- 1) Indica dónde está el .wasm (en la raíz) -->
+  <script>
+    window.verovio = window.verovio || {};
+    verovio.module = verovio.module || {};
+    verovio.module.locateFile = (path) => path; // p.ej. "verovio-toolkit-wasm.wasm"
+  </script>
+
+  <!-- 2) Toolkit JS (en la raíz) -->
+  <script src="verovio-toolkit-wasm.js" defer></script>
+</head>
+<body>
+  <header class="row">
+    <label>Archivo: <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl"></label>
+    <button id="btnLoad">Cargar</button>
+    <button id="btnDemo">Ejemplo</button>
+    <span id="status" class="status">Inicializando Verovio…</span>
+  </header>
+
+  <div id="score"></div>
+
+  <script>
+    const DEMO = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Demo</part-name></score-part></part-list>
+  <part id="P1"><measure number="1">
+    <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    <note><rest/><duration>1</duration><type>quarter</type></note>
+  </measure></part>
+</score-partwise>`;
+
+    const $file = document.getElementById('file');
+    const $btnLoad = document.getElementById('btnLoad');
+    const $btnDemo = document.getElementById('btnDemo');
+    const $status = document.getElementById('status');
+    const $score = document.getElementById('score');
+
+    let tk = null;
+
+    const setStatus = (m='') => $status.textContent = m;
+    const isMXL = (n='') => n.toLowerCase().endsWith('.mxl');
+
+    // Aviso si el .wasm no cargó (ver Network → filter "wasm")
+    const watchdog = setTimeout(() => {
+      setStatus('⚠️ Verovio no se pudo inicializar. Sube "verovio-toolkit-wasm.wasm" a la raíz o ajusta locateFile.');
+    }, 8000);
+
+    // Cuando el WASM está listo
+    window.verovio = window.verovio || {};
+    verovio.module = verovio.module || {};
+    verovio.module.onRuntimeInitialized = () => {
+      clearTimeout(watchdog);
+      tk = new verovio.toolkit({ scale: 40, pageWidth: 2100, pageHeight: 2970 });
+      setStatus('Listo. Carga un archivo o usa el ejemplo.');
+    };
+
+    function render() {
+      const svg = tk.renderToSVG(1, {});
+      $score.innerHTML = svg;
+    }
+
+    async function loadText(text) { tk.loadData(text); render(); }
+    async function loadMXL(buffer) {
+      const bytes = new Uint8Array(buffer);
+      const ok = tk.loadZipDataBuffer(bytes, bytes.length);
+      if (!ok) return setStatus('MXL no reconocido.');
+      render();
+    }
+
+    $btnLoad.addEventListener('click', async () => {
+      const f = $file.files?.[0];
+      if (!f) return setStatus('Selecciona un archivo primero.');
+      setStatus('Cargando…');
+      try {
+        if (isMXL(f.name)) await loadMXL(await f.arrayBuffer());
+        else await loadText(await f.text());
+        setStatus('Listo');
+      } catch (e) { console.error(e); setStatus('Error: ' + (e?.message || e)); }
+    });
+
+    $btnDemo.addEventListener('click', async () => {
+      if (!tk) return;
+      setStatus('Cargando ejemplo…');
+      try { await loadText(DEMO); setStatus('Listo'); } 
+      catch (e) { console.error(e); setStatus('Error al cargar ejemplo.'); }
+    });
+  </script>
+</body>
+</html>
 
 
