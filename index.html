@@ -4,26 +4,24 @@
   <meta charset="utf-8" />
   <title>MusicXML/MXL → SVG con Verovio + Reproductor</title>
 
-  <!-- 1) Verovio WASM por CDN -->
+  <!-- Verovio WASM -->
   <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
-
-  <!-- 2) Tone.js por CDN -->
+  <!-- Tone.js -->
   <script src="https://unpkg.com/tone@15.1.22/build/Tone.js"></script>
-
-  <!-- 3) Librería de instrumentos para Tone.js -->
-  <script src="https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/Tonejs-Instruments.js"></script>
+  <!-- Evitar 404 de favicon en dev -->
+  <link rel="icon" href="data:," />
 
   <style>
     body { font-family: sans-serif; margin: 1rem; }
     #notation { border: 1px solid #ddd; padding: 1rem; min-height:200px; }
-    .controls { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; margin-bottom:1rem; }
-    button, input, select { padding:0.4rem 0.8rem; }
+    .controls { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:0.5rem; }
+    button, input { padding:0.4rem 0.8rem; }
   </style>
 </head>
 <body>
-  <h1>MusicXML/MXL → SVG con Verovio + Reproductor</h1>
+  <h1>Convertir MusicXML/MXL → SVG + Reproductor</h1>
 
-  <!-- Archivo, render y configuración -->
+  <!-- Selección de archivo y render -->
   <div class="controls">
     <input id="fileInput" type="file" accept=".xml,.musicxml,.mxl" />
     <button id="renderBtn" disabled>Renderizar</button>
@@ -44,17 +42,6 @@
     <button id="applyScale" disabled>Aplicar</button>
   </div>
 
-  <!-- Selector de instrumento -->
-  <div class="controls">
-    <label for="instrumentSelect">Instrumento</label>
-    <select id="instrumentSelect">
-      <option value="piano">Piano</option>
-      <option value="guitar-electric">Guitarra Eléctrica</option>
-      <!-- Agrega más opciones si lo deseas -->
-    </select>
-    <button id="loadInstBtn" disabled>Cargar Instrumento</button>
-  </div>
-
   <!-- Reproducción -->
   <div class="controls">
     <button id="playBtn" disabled>Reproducir</button>
@@ -67,62 +54,67 @@
   <script>
     const $ = id => document.getElementById(id);
 
-    let toolkit, dataBuffer, isZip = false;
-    let currentPage = 1, totalPages = 1;
-    let instrumentObj = null, synthFallback = null;
+    let toolkit,           // Verovio
+        dataBuffer,        // MusicXML (string) o MXL (ArrayBuffer)
+        isZip = false,
+        currentPage = 1,
+        totalPages = 1;
 
-    // Inicializar Verovio
+    // Sampler global (piano); fallback synth por si faltara
+    let sampler = null;
+    const fallbackSynth = new Tone.Synth().toDestination();
+
+    // 1) Inicializar Verovio
     document.addEventListener('DOMContentLoaded', () => {
       verovio.module.onRuntimeInitialized = () => {
         toolkit = new verovio.toolkit();
-        ['renderBtn','applyScale','loadInstBtn','playBtn','stopBtn']
+        ['renderBtn','applyScale','playBtn','stopBtn']
           .forEach(id => $(id).disabled = false);
-        synthFallback = new Tone.Synth().toDestination();
       };
     });
 
-    // Leer archivo MusicXML/MXL
+    // 2) Lectura del archivo seleccionado
     $('fileInput').addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
       isZip = /\.mxl$/i.test(file.name);
       $('info').textContent = `Archivo: ${file.name}`;
       const reader = new FileReader();
-      reader.onload = () => dataBuffer = reader.result;
+      reader.onload = () => { dataBuffer = reader.result; };
       isZip ? reader.readAsArrayBuffer(file) : reader.readAsText(file);
     });
 
-    // Aplicar opciones de render
+    // 3) Opciones de layout/escala
     function applyOptions() {
       toolkit.setOptions({
         pageWidth: 2000,
-        pageHeight: 2600,
+        pageHeight:2600,
         scale: parseInt($('scaleInput').value, 10)
       });
     }
 
-    // Render inicial
+    // 4) Render inicial (XML o MXL)
     function renderInitial() {
       if (!dataBuffer) return;
       applyOptions();
+
       if (isZip) {
-        toolkit.loadZipDataBuffer(
-          new Uint8Array(dataBuffer),
-          dataBuffer.byteLength
-        );
+        toolkit.loadZipDataBuffer(new Uint8Array(dataBuffer), dataBuffer.byteLength);
       } else {
         toolkit.loadData(dataBuffer);
       }
+
       totalPages = toolkit.getPageCount();
       currentPage = 1;
       $('pageMax').textContent = totalPages;
       $('prevBtn').disabled = totalPages <= 1;
       $('nextBtn').disabled = totalPages <= 1;
+
       $('notation').innerHTML = toolkit.renderToSVG(currentPage);
       $('pageNow').textContent = currentPage;
     }
 
-    // Navegar páginas
+    // 5) Navegación de páginas
     function renderPage(page) {
       if (page < 1 || page > totalPages) return;
       $('notation').innerHTML = toolkit.renderToSVG(page);
@@ -130,65 +122,87 @@
       $('pageNow').textContent = currentPage;
     }
 
-    // Eventos de render y paginación
+    // 6) Enlaces a botones de render/paginación
     $('renderBtn').onclick  = renderInitial;
     $('prevBtn').onclick    = () => renderPage(currentPage - 1);
     $('nextBtn').onclick    = () => renderPage(currentPage + 1);
     $('applyScale').onclick = () => { applyOptions(); renderPage(currentPage); };
 
-    // Cargar instrumento con baseUrl corregido
-    $('loadInstBtn').onclick = () => {
-      const inst = $('instrumentSelect').value;
-      instrumentObj = SampleLibrary.load({
-        instruments: inst,
-        baseUrl: 'https://nbrosowsky.github.io/tonejs-instruments/samples/'
-      });
-      instrumentObj.toDestination();
-    };
+    // 7) Sampler de piano (Salamander). Se carga bajo demanda.
+    function ensureSampler() {
+      if (sampler) return sampler;
+      sampler = new Tone.Sampler({
+        urls: {
+          "C4":  "C4.mp3",
+          "D#4": "Ds4.mp3",
+          "F#4": "Fs4.mp3",
+          "A4":  "A4.mp3",
+          "C5":  "C5.mp3"
+        },
+        release: 1,
+        baseUrl: "https://tonejs.github.io/audio/salamander/"
+      }).toDestination();
+      return sampler;
+    }
 
-    // Configurar synth de respaldo y transport
-    synthFallback = new Tone.Synth().toDestination();
+    // 8) Programar reproducción (a partir de MusicXML texto)
     Tone.Transport.bpm.value = 120;
 
-    // Programar reproducción de notas
     function schedulePlayback(xmlString) {
+      // Limpieza por si el usuario pulsó Play varias veces
+      Tone.Transport.stop();
+      Tone.Transport.cancel(0);
+      Tone.Transport.position = 0;
+
       const xmlDoc = new DOMParser().parseFromString(xmlString, "application/xml");
       const divisions = parseFloat(xmlDoc.querySelector("divisions")?.textContent || "1");
-      let time = 0;
+
+      let timeSec = 0; // acumulador en segundos
+
       xmlDoc.querySelectorAll("note").forEach(noteEl => {
         if (noteEl.querySelector("rest")) return;
-        const step    = noteEl.querySelector("step")?.textContent   || "C";
-        const alter   = noteEl.querySelector("alter")?.textContent  || "0";
-        const octave  = noteEl.querySelector("octave")?.textContent || "4";
-        const accidental = alter === "1" ? "#" : alter === "-1" ? "b" : "";
-        const pitch   = `${step}${accidental}${octave}`;
+
+        const step   = noteEl.querySelector("step")?.textContent   || "C";
+        const alter  = noteEl.querySelector("alter")?.textContent  || "0";
+        const octave = noteEl.querySelector("octave")?.textContent || "4";
+        const acc    = alter === "1" ? "#" : (alter === "-1" ? "b" : "");
+        const pitch  = `${step}${acc}${octave}`;
+
         const durDivs = parseFloat(noteEl.querySelector("duration")?.textContent || divisions);
-        const ratio   = durDivs / divisions;
+        const ratio   = durDivs / divisions; // fracción de negra
         const durVal  = ratio >= 1    ? "4n"
-                         : ratio >= 0.5 ? "8n"
-                         : ratio >= 0.25? "16n"
-                                         : "32n";
+                        : ratio >= 0.5 ? "8n"
+                        : ratio >= 0.25? "16n"
+                                        : "32n";
 
-        Tone.Transport.schedule((t) => {
-          const player = instrumentObj || synthFallback;
+        // Programar a 'timeSec' (segundos) y convertir la duración musical a segundos
+        Tone.Transport.schedule(t => {
+          const player = sampler || fallbackSynth;
           player.triggerAttackRelease(pitch, durVal, t);
-        }, time);
+        }, timeSec);
 
-        time += ratio;
+        // Avanzar el cursor en segundos según el valor musical
+        timeSec += Tone.Time(durVal).toSeconds();
       });
     }
 
-    // Play / Stop
+    // 9) Reproducir / Detener
     $('playBtn').onclick = async () => {
       if (!dataBuffer) return;
-      await Tone.start();             // reanuda AudioContext tras gesto
+      if (isZip) { alert("Para reproducir usa un .xml/.musicxml (no .mxl)"); return; }
+
+      await Tone.start();     // requisito de autoplay: gesto del usuario
+      ensureSampler();        // crear/cargar sampler si hace falta
+      await Tone.loaded();    // esperar a que TODAS las muestras estén listas
+
       schedulePlayback(dataBuffer);
-      // Esperar buffers antes de iniciar
-      Tone.Buffer.on('load', () => Tone.Transport.start());
+      Tone.Transport.start();
     };
+
     $('stopBtn').onclick = () => {
       Tone.Transport.stop();
       Tone.Transport.cancel(0);
+      Tone.Transport.position = 0;
     };
   </script>
 </body>
