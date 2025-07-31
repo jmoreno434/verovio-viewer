@@ -1,135 +1,93 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <title>MusicXML → SVG (Verovio)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-
-  <!-- A) Toolkit desde verovio.org -->
-  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
-  <!-- B) (alternativa) Toolkit desde jsDelivr (versión fija)
-  <script src="https://cdn.jsdelivr.net/npm/verovio@5.4.0/dist/verovio-toolkit-wasm.js" defer></script>
-  -->
-
+  <meta charset="UTF-8">
+  <title>MusicXML → SVG con Verovio</title>
+  <!-- 1) Incluye Verovio WASM desde el CDN oficial -->
+  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f6f6f6; }
-    header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-    #out { background: #fff; border: 1px solid #ddd; min-height: 240px; padding: 8px; }
-    .status { font-size: 14px; color: #555; min-height: 1.2em; margin-left: 8px; }
-    button { padding: 8px 12px; }
+    body { font-family: sans-serif; margin: 2rem; }
+    #notation { margin-top: 1rem; border: 1px solid #ccc; padding: 1rem; }
+    button { margin: 0.5rem 0.25rem; }
   </style>
 </head>
 <body>
-  <header>
-    <label>Archivo (MusicXML/MXL):
-      <input id="file" type="file" accept=".xml,.musicxml,.mxl" />
-    </label>
-    <button id="btn">Convertir a SVG</button>
-    <button id="demo">Cargar demo</button>
-    <span id="status" class="status">Cargando toolkit…</span>
-  </header>
 
-  <div id="out">Aquí aparecerá el SVG</div>
+  <h1>Convertir MusicXML a SVG</h1>
 
-  <!-- Todo el código que usa `verovio` se registra después de que el toolkit cargue -->
-  <script defer>
-    // Demo embebida (MusicXML "plano")
-    const DEMO_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
-<score-partwise version="3.1">
-  <part-list><score-part id="P1"><part-name>Demo</part-name></score-part></part-list>
-  <part id="P1">
-    <measure number="1">
-      <attributes>
-        <divisions>1</divisions>
-        <key><fifths>0</fifths></key>
-        <time><beats>4</beats><beat-type>4</beat-type></time>
-        <clef><sign>G</sign><line>2</line></clef>
-      </attributes>
-      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-      <note><rest/><duration>1</duration><type>quarter</type></note>
-      <barline location="right"><bar-style>light-heavy</bar-style></barline>
-    </measure>
-  </part>
-</score-partwise>`;
+  <!-- 2) Selector de archivo MusicXML -->
+  <input id="fileInput" type="file" accept=".xml,.musicxml" />
+  
+  <!-- 3) Controles de paginación -->
+  <div id="controls" style="display:none;">
+    <button id="prevPage">← Página anterior</button>
+    <span>Página <span id="currentPage">1</span></span>
+    <button id="nextPage">Página siguiente →</button>
+  </div>
 
-    const $file = document.getElementById('file');
-    const $btn  = document.getElementById('btn');
-    const $demo = document.getElementById('demo');
-    const $out  = document.getElementById('out');
-    const $status = document.getElementById('status');
+  <!-- 4) Contenedor donde se insertará el SVG -->
+  <div id="notation"></div>
 
-    // Para evitar el "verovio is not defined":
-    // - Esperamos a que TODAS las scripts defer terminen (evento load),
-    // - Luego enganchamos onRuntimeInitialized.
-    window.addEventListener('load', () => {
-      if (!window.verovio || !verovio.module) {
-        $status.textContent = 'No se cargó el toolkit. Revisa la consola/Network.';
-        return;
+  <script>
+    // 5) Crear la instancia de Verovio
+    const vrvToolkit = new verovio.Toolkit();
+
+    let currentXml = "";      // Aquí guardamos el MusicXML cargado
+    let currentPage = 1;      // Página actual
+    let totalPages = 1;       // Número de páginas del documento
+
+    const notationEl = document.getElementById('notation');
+    const controlsEl = document.getElementById('controls');
+    const currentPageEl = document.getElementById('currentPage');
+    const prevBtn = document.getElementById('prevPage');
+    const nextBtn = document.getElementById('nextPage');
+
+    // Función para renderizar la página `pageNum`
+    function renderPage(pageNum) {
+      // Opciones de renderizado: ajusta ancho, alto o escala si lo deseas
+      const options = {
+        page:       pageNum,
+        pageWidth:  800,
+        pageHeight: 1000,
+        scale:      60
+      };
+      // Renderizamos y obtenemos el SVG
+      const svg = vrvToolkit.renderData(currentXml, options);
+      notationEl.innerHTML = svg;
+      currentPageEl.textContent = pageNum;
+    }
+
+    // Manejo de carga de archivo por el usuario
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function() {
+        currentXml = reader.result;
+        // Carga los datos en el toolkit para poder consultar el número de páginas
+        vrvToolkit.loadData(currentXml);
+        totalPages = vrvToolkit.getPageCount();  // Verovio determina cuántas páginas
+        currentPage = 1;
+        controlsEl.style.display = totalPages > 1 ? "block" : "none";
+        renderPage(currentPage);
+      };
+      reader.readAsText(file);
+    });
+
+    // Botones de navegación
+    prevBtn.addEventListener('click', () => {
+      if (currentPage > 1) {
+        currentPage--;
+        renderPage(currentPage);
       }
-
-      const tkReady = new Promise((resolve) => {
-        verovio.module.onRuntimeInitialized = () => {
-          const tk = new verovio.toolkit({
-            pageWidth: 2100,
-            pageHeight: 2970,
-            scale: 40
-          });
-          resolve(tk);
-          $status.textContent = 'Listo. Sube tu MusicXML/MXL o usa la demo.';
-        };
-      });
-
-      function renderSVG(tk, page = 1) {
-        const svg = tk.renderToSVG(page, {});
-        $out.innerHTML = svg;
+    });
+    nextBtn.addEventListener('click', () => {
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderPage(currentPage);
       }
-
-      async function fromXMLText(tk, xmlText) {
-        tk.loadData(xmlText);                 // MusicXML "plano"
-        renderSVG(tk, 1);
-      }
-
-      async function fromMXLBuffer(tk, arrayBuffer) {
-        const bytes = new Uint8Array(arrayBuffer);
-        tk.loadZipDataBuffer(bytes, bytes.length); // MXL (comprimido)
-        renderSVG(tk, 1);
-      }
-
-      $btn.addEventListener('click', async () => {
-        const f = $file.files?.[0];
-        if (!f) { $status.textContent = 'Selecciona un archivo primero.'; return; }
-        $status.textContent = 'Convirtiendo…';
-        try {
-          const tk = await tkReady; // <- clave: esperamos a que Verovio esté listo
-          if (f.name.toLowerCase().endsWith('.mxl')) {
-            await fromMXLBuffer(tk, await f.arrayBuffer());
-          } else {
-            await fromXMLText(tk, await f.text());
-          }
-          $status.textContent = 'SVG generado ✔';
-        } catch (e) {
-          console.error(e);
-          $status.textContent = 'Error: ' + (e?.message || e);
-        }
-      });
-
-      $demo.addEventListener('click', async () => {
-        $status.textContent = 'Generando demo…';
-        try {
-          const tk = await tkReady;
-          await fromXMLText(tk, DEMO_XML);
-          $status.textContent = 'SVG demo ✔';
-        } catch (e) {
-          console.error(e);
-          $status.textContent = 'Error demo: ' + (e?.message || e);
-        }
-      });
     });
   </script>
+
 </body>
 </html>
-
-
