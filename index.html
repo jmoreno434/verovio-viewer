@@ -14,21 +14,26 @@
     button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
   </style>
 
-  <!-- Toolkit JS desde jsDelivr (JS y WASM viven en /dist de la MISMA versión) -->
-  <script src="https://cdn.jsdelivr.net/npm/verovio@5.4.0/dist/verovio-toolkit-wasm.js" defer></script>
-
-  <!-- (Opcional) Loguea por consola la URL que usará el WASM, útil para debug -->
+  <!-- 1) Hook de Emscripten para redirigir el .wasm a un CDN -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    // Emscripten usa locateFile para resolver el .wasm: aquí solo lo logueamos.
-    const _locateFile = (path, prefix) => {
-      const url = (prefix || '') + path;
-      console.log('[Verovio locateFile]', { path, prefix, url });
-      return url;
+
+    // Cambia SOLO esta base si tu JS local no coincide con 5.4.0
+    const WASM_CDN_BASE = 'https://cdn.jsdelivr.net/npm/verovio@5.4.0/dist/';
+
+    verovio.module.locateFile = (path, prefix) => {
+      if (path.endsWith('.wasm')) {
+        const url = WASM_CDN_BASE + path;      // p.ej. .../verovio-toolkit-wasm.wasm
+        console.log('[Verovio locateFile] WASM →', url);
+        return url;
+      }
+      return (prefix || '') + path;
     };
-    verovio.module.locateFile = _locateFile;
   </script>
+
+  <!-- 2) TU toolkit local (en la raíz). NO usar type="module" aquí -->
+  <script src="verovio-toolkit-wasm.js" defer></script>
 </head>
 <body>
   <header class="row">
@@ -43,7 +48,7 @@
   <div id="score"></div>
 
   <script>
-    // MusicXML de ejemplo (embebido; sin fetch externo)
+    // --- MusicXML de ejemplo (evita fetch externo) ---
     const DEMO = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="3.1">
@@ -69,10 +74,11 @@
 
     // Watchdog por si el .wasm no carga
     const watchdog = setTimeout(() => {
-      setStatus('⚠️ Verovio no se pudo inicializar. Abre DevTools → Network → filtra "wasm" y verifica 200 en /dist/verovio-toolkit-wasm.wasm');
+      setStatus('Verovio no se pudo inicializar. Revisa Network → "wasm".');
     }, 9000);
 
-    // Inicializa cuando el WASM esté listo (patrón recomendado en la guía)
+    // Patrón recomendado: crear toolkit cuando el runtime esté listo
+    // (Ver documentación "Getting started")
     document.addEventListener("DOMContentLoaded", () => {
       verovio.module.onRuntimeInitialized = () => {
         clearTimeout(watchdog);
@@ -114,6 +120,7 @@
   </script>
 </body>
 </html>
+
 
 
 
