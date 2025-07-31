@@ -5,7 +5,7 @@
   <title>Visor Verovio App</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body { margin:0; font-family:system-ui,sans-serif; background:#fafafa }
+    body { margin:0; font-family: system-ui, sans-serif; background: #fafafa }
     header { padding:1rem; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.1) }
     #app { margin:1rem; border:1px solid #ccc; min-height:600px; background:#fff }
     input, button { padding:.5rem; font-size:1rem }
@@ -18,28 +18,26 @@
   </header>
   <div id="app"></div>
 
-  <!-- 1) Dile al loader dónde está el .wasm -->
+  <!-- 1) Indica dónde está el .wasm (en raíz) -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    // locateFile recibe el nombre tal cual (ej: "verovio-toolkit-wasm.wasm")
-    verovio.module.locateFile = path => path;
+    verovio.module.locateFile = (path) => path;
   </script>
 
-  <!-- 2) Carga el toolkit WASM (en la raíz) -->
-  <script src="verovio-toolkit-wasm.js" defer></script>
+  <!-- 2) Toolkit WASM (el "kit de herramientas verovio-wasm.js" que mencionas) -->
+  <script src="kit de herramientas verovio-wasm.js" defer></script>
 
-  <!-- 3) Carga la UI de la App (módulo ES) -->
+  <!-- 3) UI de la App (descarga el verovio-app.js oficial y ponlo aquí) -->
   <script type="module" src="verovio-app.js"></script>
 
-  <!-- 4) Lógica para cargar tu fichero -->
+  <!-- 4) Tu lógica para cargar archivos -->
   <script type="module">
-    // Espera a que verovio-app.js defina Verovio.App
-    const container = document.getElementById('app');
-    const app = new Verovio.App(container, {
-      defaultView: 'document',
-      documentZoom: 4
-    });
+    // Se crea la instancia de Verovio.App en el div #app
+    const app = new Verovio.App(
+      document.getElementById('app'),
+      { defaultView: 'document', documentZoom: 4 }
+    );
 
     async function loadMXL(buffer) {
       const tk = app.toolkit;
@@ -54,7 +52,7 @@
 
     document.getElementById('loadFile').addEventListener('click', async () => {
       const f = document.getElementById('file').files[0];
-      if (!f) return alert('Selecciona un archivo primero');
+      if (!f) return alert('Selecciona un archivo');
       const name = f.name.toLowerCase();
       const buf = await f.arrayBuffer();
       if (name.endsWith('.mxl')) {
@@ -67,3 +65,4 @@
   </script>
 </body>
 </html>
+
