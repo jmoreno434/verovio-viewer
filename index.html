@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Verovio – Visor simple (MEI / MusicXML / MXL)</title>
+  <title>Verovio – Visor simple</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { --pad: 16px; }
@@ -14,32 +14,31 @@
     button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
   </style>
 
-  <!-- 1) Hook de Emscripten para redirigir el .wasm a un CDN -->
+  <!-- 1) Redirige SOLO el .wasm a la MISMA versión del JS local -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
 
-    // Cambia SOLO esta base si tu JS local no coincide con 5.4.0
-    const WASM_CDN_BASE = 'https://cdn.jsdelivr.net/npm/verovio@5.4.0/dist/';
+    // Usa la misma versión que tu JS local. Ejemplo: 5.4.0:
+    const WASM_BASE = 'https://www.verovio.org/javascript/5.4.0/';
 
     verovio.module.locateFile = (path, prefix) => {
       if (path.endsWith('.wasm')) {
-        const url = WASM_CDN_BASE + path;      // p.ej. .../verovio-toolkit-wasm.wasm
-        console.log('[Verovio locateFile] WASM →', url);
+        const url = WASM_BASE + path; // p.ej. .../verovio-toolkit-wasm.wasm
+        console.log('[Verovio locateFile] .wasm →', url);
         return url;
       }
+      // el resto (JS auxiliares) se resuelven normal
       return (prefix || '') + path;
     };
   </script>
 
-  <!-- 2) TU toolkit local (en la raíz). NO usar type="module" aquí -->
+  <!-- 2) TU toolkit JS local (en la raíz). Importante: NO type="module" -->
   <script src="verovio-toolkit-wasm.js" defer></script>
 </head>
 <body>
   <header class="row">
-    <label>Archivo:
-      <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl" />
-    </label>
+    <label>Archivo: <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl" /></label>
     <button id="btnLoad">Cargar</button>
     <button id="btnDemo">Ejemplo</button>
     <span id="status" class="status">Inicializando Verovio…</span>
@@ -48,13 +47,16 @@
   <div id="score"></div>
 
   <script>
-    // --- MusicXML de ejemplo (evita fetch externo) ---
+    // Ejemplo MusicXML embebido (sin fetch externo)
     const DEMO = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="3.1">
   <part-list><score-part id="P1"><part-name>Demo</part-name></score-part></part-list>
   <part id="P1"><measure number="1">
-    <attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+    <attributes><divisions>1</divisions><key><fifths>0</fifths></key>
+      <time><beats>4</beats><beat-type>4</beat-type></time>
+      <clef><sign>G</sign><line>2</line></clef>
+    </attributes>
     <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
     <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
     <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
@@ -72,13 +74,12 @@
     const setStatus = (m='') => $status.textContent = m;
     const isMXL = (n='') => n.toLowerCase().endsWith('.mxl');
 
-    // Watchdog por si el .wasm no carga
+    // Watchdog si el .wasm no carga
     const watchdog = setTimeout(() => {
-      setStatus('Verovio no se pudo inicializar. Revisa Network → "wasm".');
+      setStatus('Verovio no se pudo inicializar. Revisa Network → filtro "wasm" y que la URL devuelva 200.');
     }, 9000);
 
-    // Patrón recomendado: crear toolkit cuando el runtime esté listo
-    // (Ver documentación "Getting started")
+    // Patrón oficial: crear toolkit cuando el runtime esté listo
     document.addEventListener("DOMContentLoaded", () => {
       verovio.module.onRuntimeInitialized = () => {
         clearTimeout(watchdog);
@@ -120,6 +121,7 @@
   </script>
 </body>
 </html>
+
 
 
 
