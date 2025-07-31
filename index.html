@@ -1,39 +1,127 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>VexFlow MusicXML → Render</title>
+  <meta charset="utf-8" />
+  <title>MusicXML/MXL → SVG con Verovio (CDN)</title>
+  <!-- 1) Carga Verovio WASM -->
+  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
   <style>
-    #sheet { border:1px solid #ccc; padding:8px; margin-top:8px; }
+    body { font-family: sans-serif; margin: 1rem; }
+    #notation { border: 1px solid #ddd; padding: 1rem; min-height:200px; }
+    .controls { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:0.5rem; }
+    button, input { padding:0.4rem 0.8rem; }
   </style>
-  <!-- VexFlow base (motor de notación) -->
-  <script src="https://www.vexflow.com/releases/vexflow-min.js"></script> <!-- o desde un CDN equivalente -->
-  <!-- Plugin MusicXML (ruta típica de build en el paquete) -->
-  <script src="https://unpkg.com/vexflow-musicxml@0.3.1/build/vexflow-musicxml.js"></script>
-  <!-- La documentación del paquete explica este patrón de uso y la ruta /build. -->
 </head>
 <body>
-  <h1>MusicXML → VexFlow</h1>
-  <input id="fileInput" type="file" accept=".xml,.musicxml">
-  <div id="sheet"></div>
+  <h1>Convertir MusicXML/MXL → SVG</h1>
+
+  <!-- Selección de archivo y render -->
+  <div class="controls">
+    <input id="fileInput" type="file" accept=".xml,.musicxml,.mxl" />
+    <button id="renderBtn" disabled>Renderizar</button>
+    <span id="info"></span>
+  </div>
+
+  <!-- Paginación -->
+  <div class="controls">
+    <button id="prevBtn" disabled>← Anterior</button>
+    <span>Página <span id="pageNow">1</span> / <span id="pageMax">1</span></span>
+    <button id="nextBtn" disabled>Siguiente →</button>
+  </div>
+
+  <!-- Escala -->
+  <div class="controls">
+    <label for="scaleInput">Escala (%)</label>
+    <input id="scaleInput" type="number" value="60" min="10" max="200" step="5" />
+    <button id="applyScale" disabled>Aplicar</button>
+  </div>
+
+  <!-- Contenedor SVG -->
+  <div id="notation"></div>
 
   <script>
-    const input = document.getElementById('fileInput');
-    const container = document.getElementById('sheet');
+    // Helper para acceder a elementos
+    const $ = id => document.getElementById(id);
 
-    input.addEventListener('change', e => {
+    let toolkit,           // instancia de Verovio
+        dataBuffer,        // MusicXML texto o MXL ArrayBuffer
+        isZip = false,
+        currentPage = 1,
+        totalPages = 1;
+
+    // 2) Inicializar Verovio una vez cargado el WASM
+    document.addEventListener('DOMContentLoaded', () => {
+      verovio.module.onRuntimeInitialized = () => {
+        toolkit = new verovio.toolkit();             // :contentReference[oaicite:4]{index=4}
+        $('renderBtn').disabled   = false;
+        $('applyScale').disabled  = false;
+      };
+    });
+
+    // 3) Lectura del archivo seleccionado
+    $('fileInput').addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
+      isZip = /\.mxl$/i.test(file.name);
+      $('info').textContent = `Archivo: ${file.name}`;
       const reader = new FileReader();
-      reader.onload = () => {
-        const xml = reader.result;
-        // API del plugin:
-        // new Vex.Flow.MusicXmlRenderer(xmlString, contenedor <div> o <canvas>)
-        new Vex.Flow.MusicXmlRenderer(xml, container);
-      };
-      reader.readAsText(file);
+      reader.onload = () => { dataBuffer = reader.result; };
+      if (isZip) reader.readAsArrayBuffer(file);
+      else      reader.readAsText(file);
     });
+
+    // 4) Aplicar opciones de layout/escala
+    function applyOptions() {
+      toolkit.setOptions({
+        pageWidth: 2000,
+        pageHeight:2600,
+        scale:    parseInt($('scaleInput').value, 10)
+      });
+    }
+
+    // 5) Render inicial (XML o MXL)
+    function renderInitial() {
+      if (!dataBuffer) return;
+      applyOptions();
+
+      if (isZip) {
+        // 👉 Corregido: pasar también la longitud del buffer
+        toolkit.loadZipDataBuffer(
+          new Uint8Array(dataBuffer),  // ArrayBuffer → Uint8Array
+          dataBuffer.byteLength         // longitud en bytes :contentReference[oaicite:5]{index=5}
+        );
+      } else {
+        toolkit.loadData(dataBuffer);  // cargar texto MusicXML :contentReference[oaicite:6]{index=6}
+      }
+
+      totalPages = toolkit.getPageCount();
+      currentPage = 1;
+      $('pageMax').textContent = totalPages;
+      $('prevBtn').disabled = totalPages <= 1;
+      $('nextBtn').disabled = totalPages <= 1;
+
+      // Renderiza la página actual
+      $('notation').innerHTML = toolkit.renderToSVG(currentPage);
+      $('pageNow').textContent = currentPage;
+    }
+
+    // 6) Navegación de páginas
+    function renderPage(page) {
+      if (page < 1 || page > totalPages) return;
+      toolkit.setOptions({});  // opcional: re-aplicar si cambian opciones dinámicas
+      $('notation').innerHTML = toolkit.renderToSVG(page);
+      currentPage = page;
+      $('pageNow').textContent = currentPage;
+    }
+
+    // 7) Enlaces a botones
+    $('renderBtn').onclick   = renderInitial;
+    $('prevBtn').onclick     = () => renderPage(currentPage - 1);
+    $('nextBtn').onclick     = () => renderPage(currentPage + 1);
+    $('applyScale').onclick  = () => {
+      applyOptions();
+      renderPage(currentPage);
+    };
   </script>
 </body>
 </html>
-
