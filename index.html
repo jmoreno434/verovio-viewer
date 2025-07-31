@@ -2,37 +2,44 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Ejemplo OpenSheetMusicDisplay</title>
-  <!-- Incluir OSMD desde jsDelivr (versión 1.9.0, BSD-3-Clause) -->
-  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.0/build/opensheetmusicdisplay.min.js"></script> :contentReference[oaicite:0]{index=0}
+  <title>OSMD: MusicXML → SVG (carga local)</title>
+  <!-- OSMD desde jsDelivr -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.0/build/opensheetmusicdisplay.min.js"></script>
   <style>
     body { font-family: sans-serif; padding: 1rem; }
-    #sheet { border: 1px solid #ccc; padding: 1rem; }
+    #sheet { border: 1px solid #ccc; padding: 1rem; margin-top: 1rem; }
   </style>
 </head>
 <body>
 
-  <h1>Renderizando MusicXML con OSMD</h1>
-  <!-- Contenedor donde se insertará el SVG -->
+  <h1>Renderiza tu MusicXML</h1>
+  <input type="file" id="fileInput" accept=".xml,.musicxml" />
   <div id="sheet"></div>
 
   <script>
-    // Esperar a que el DOM esté listo
-    document.addEventListener('DOMContentLoaded', () => {
-      // 1) Crear instancia: recibe un elemento DOM
-      const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
-        document.getElementById("sheet")
-      );
+    // 1) Instancia OSMD apuntando al contenedor
+    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
+      document.getElementById("sheet")
+    );
 
-      // 2) Cargar un archivo MusicXML (ruta relativa o absoluta)
-      osmd.load("ruta/a/tu/archivo.musicxml").then(() => {
-        // 3) Renderizar el SVG una vez cargado
-        osmd.render();
-      }).catch(err => {
-        console.error("Error cargando MusicXML:", err);
-      });
+    // 2) Cuando el usuario seleccione un archivo...
+    document.getElementById("fileInput").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // 3) Leer como ArrayBuffer
+      const reader = new FileReader();
+      reader.onload = () => {
+        const arrayBuffer = reader.result;
+        // 4) Cargar y renderizar
+        osmd.load(arrayBuffer)
+          .then(() => osmd.render())
+          .catch(err => console.error("Error renderizando:", err));
+      };
+      reader.readAsArrayBuffer(file);
     });
   </script>
 
 </body>
 </html>
+
