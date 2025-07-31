@@ -5,7 +5,7 @@
   <title>Visor Verovio App</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body { margin:0; font-family: system-ui, sans-serif; background: #fafafa }
+    body { margin:0; font-family:system-ui,sans-serif; background:#fafafa }
     header { padding:1rem; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.1) }
     #app { margin:1rem; border:1px solid #ccc; min-height:600px; background:#fff }
     input, button { padding:.5rem; font-size:1rem }
@@ -16,29 +16,31 @@
     <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl">
     <button id="loadFile">Cargar archivo</button>
   </header>
+
   <div id="app"></div>
 
-  <!-- 1) Indica dónde está el .wasm (en raíz) -->
+  <!-- 1) Configura dónde está el .wasm (en la raíz) -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    verovio.module.locateFile = (path) => path;
+    verovio.module.locateFile = path => path;
   </script>
 
-  <!-- 2) Toolkit WASM (el "kit de herramientas verovio-wasm.js" que mencionas) -->
-  <script src="kit de herramientas verovio-wasm.js" defer></script>
+  <!-- 2) Toolkit WASM (ya en la raíz como verovio-toolkit-wasm.js) -->
+  <script src="verovio-toolkit-wasm.js" defer></script>
 
-  <!-- 3) UI de la App (descarga el verovio-app.js oficial y ponlo aquí) -->
-  <script type="module" src="verovio-app.js"></script>
+  <!-- 3) UI de la App: importa el módulo ESM renombrado a verovio.mjs -->
+  <script type="module" src="verovio.mjs"></script>
 
-  <!-- 4) Tu lógica para cargar archivos -->
+  <!-- 4) Lógica para cargar MEI/MusicXML/MXL -->
   <script type="module">
-    // Se crea la instancia de Verovio.App en el div #app
+    // Espera a que verovio.mjs registre Verovio.App
     const app = new Verovio.App(
       document.getElementById('app'),
       { defaultView: 'document', documentZoom: 4 }
     );
 
+    // Carga un .mxl (zip) convirtiéndolo a MEI
     async function loadMXL(buffer) {
       const tk = app.toolkit;
       tk.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
@@ -46,15 +48,16 @@
       await app.loadData(mei);
     }
 
-    async function loadText(text) {
-      await app.loadData(text);
+    // Carga texto MEI o MusicXML
+    async function loadText(txt) {
+      await app.loadData(txt);
     }
 
     document.getElementById('loadFile').addEventListener('click', async () => {
       const f = document.getElementById('file').files[0];
-      if (!f) return alert('Selecciona un archivo');
+      if (!f) return alert('Selecciona un archivo primero');
       const name = f.name.toLowerCase();
-      const buf = await f.arrayBuffer();
+      const buf  = await f.arrayBuffer();
       if (name.endsWith('.mxl')) {
         await loadMXL(buf);
       } else {
