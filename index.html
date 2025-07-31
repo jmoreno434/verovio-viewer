@@ -2,208 +2,292 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>MusicXML/MXL → SVG con Verovio + Reproductor</title>
+  <title>MusicXML/MXL → SVG + Player Avanzado</title>
 
   <!-- Verovio WASM -->
   <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
   <!-- Tone.js -->
   <script src="https://unpkg.com/tone@15.1.22/build/Tone.js"></script>
-  <!-- Evitar 404 de favicon en dev -->
+  <!-- tonejs-instruments (opcional) -->
+  <script src="https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/Tonejs-Instruments.js"></script>
+
   <link rel="icon" href="data:," />
 
   <style>
-    body { font-family: sans-serif; margin: 1rem; }
-    #notation { border: 1px solid #ddd; padding: 1rem; min-height:200px; }
-    .controls { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:0.5rem; }
-    button, input { padding:0.4rem 0.8rem; }
+    body { font-family: system-ui, sans-serif; margin: 1rem; }
+    #notation { border:1px solid #ccc; padding:1rem; min-height:260px; }
+    .controls { display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
+    .highlight-note, .highlight-note * { fill: red !important; stroke: red !important; }
+    .current-measure, .current-measure * { stroke: orange !important; stroke-width:1.5 !important; }
+    fieldset { border:1px solid #ccc; padding:.5rem; margin-bottom:1rem; }
+    legend { font-weight: bold; }
   </style>
 </head>
 <body>
-  <h1>Convertir MusicXML/MXL → SVG + Reproductor</h1>
+  <h1>MusicXML → SVG + Player Avanzado</h1>
 
-  <!-- Selección de archivo y render -->
+  <!-- Carga y render -->
   <div class="controls">
-    <input id="fileInput" type="file" accept=".xml,.musicxml,.mxl" />
+    <input id="fileInput" type="file" accept=".xml,.musicxml,.mxl">
     <button id="renderBtn" disabled>Renderizar</button>
     <span id="info"></span>
   </div>
 
-  <!-- Paginación -->
+  <!-- Paginación y escala -->
   <div class="controls">
-    <button id="prevBtn" disabled>← Anterior</button>
-    <span>Página <span id="pageNow">1</span> / <span id="pageMax">1</span></span>
-    <button id="nextBtn" disabled>Siguiente →</button>
-  </div>
-
-  <!-- Escala -->
-  <div class="controls">
-    <label for="scaleInput">Escala (%)</label>
-    <input id="scaleInput" type="number" value="60" min="10" max="200" step="5" />
+    <button id="prevBtn" disabled>←</button>
+    <span>Página <span id="pageNow">1</span>/<span id="pageMax">1</span></span>
+    <button id="nextBtn" disabled>→</button>
+    <label>Escala <input id="scaleInput" type="number" min="30" max="200" step="5" value="60">% </label>
     <button id="applyScale" disabled>Aplicar</button>
   </div>
 
-  <!-- Reproducción -->
+  <!-- Motor e instrumento -->
   <div class="controls">
-    <button id="playBtn" disabled>Reproducir</button>
-    <button id="stopBtn" disabled>Detener</button>
+    <label>Motor
+      <select id="engineSelect">
+        <option value="synth" selected>Synth</option>
+        <option value="sampler">Sampler</option>
+      </select>
+    </label>
+    <label>Instrumento
+      <select id="instrumentSelect">
+        <option value="piano" selected>Piano</option>
+        <option value="violin">Violín</option>
+        <option value="cello">Cello</option>
+      </select>
+    </label>
+    <button id="loadInstBtn" disabled>Cargar Inst.</button>
+    <span id="instInfo"></span>
   </div>
 
-  <!-- Contenedor SVG -->
+  <!-- Playback, tempo y loop -->
+  <fieldset>
+    <legend>Controls</legend>
+    <button id="playBtn" disabled>▶ Play</button>
+    <button id="stopBtn" disabled>■ Stop</button>
+    <label>Tempo <input id="tempoRange" type="range" min="40" max="200" value="120"><span id="tempoVal">120</span></label>
+    <label>Loop C mp:
+      <input id="loopStart" type="number" min="1" value="1" style="width:3rem;">
+      –
+      <input id="loopEnd"   type="number" min="1" value="4" style="width:3rem;">
+    </label>
+    <button id="applyLoop" disabled>Set Loop</button>
+    <button id="clearLoop" disabled>Clear Loop</button>
+    <span id="meterNow"></span>
+  </fieldset>
+
+  <!-- Mezcla por staves -->
+  <fieldset>
+    <legend>Mezcla por voces</legend>
+    <div id="mixer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.5rem;"></div>
+  </fieldset>
+
+  <!-- Partitura -->
   <div id="notation"></div>
 
   <script>
+  (() => {
     const $ = id => document.getElementById(id);
+    let toolkit, dataBuffer, isZip=false, currentPage=1, totalPages=1;
 
-    let toolkit,           // Verovio
-        dataBuffer,        // MusicXML (string) o MXL (ArrayBuffer)
-        isZip = false,
-        currentPage = 1,
-        totalPages = 1;
+    // Audio
+    let engine='synth', sampler=null, synthMap={}, staffGain={}, staffMute={}, staffSolo=null;
+    const fallbackSynth = new Tone.PolySynth(Tone.Synth).toDestination();
+    const BASE_URL='https://nbrosowsky.github.io/tonejs-instruments/samples/';
 
-    // Sampler global (piano); fallback synth por si faltara
-    let sampler = null;
-    const fallbackSynth = new Tone.Synth().toDestination();
+    // Timemap
+    let timemap=[], measureStarts=[], baseTempo=120, tempoNow=120;
 
-    // 1) Inicializar Verovio
+    // Inicialización Verovio
     document.addEventListener('DOMContentLoaded', () => {
       verovio.module.onRuntimeInitialized = () => {
         toolkit = new verovio.toolkit();
-        ['renderBtn','applyScale','playBtn','stopBtn']
-          .forEach(id => $(id).disabled = false);
+        ['renderBtn','applyScale','loadInstBtn','playBtn','stopBtn','applyLoop','clearLoop']
+          .forEach(id => $(id).disabled=false);
       };
     });
 
-    // 2) Lectura del archivo seleccionado
+    // Leer archivo
     $('fileInput').addEventListener('change', e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      isZip = /\.mxl$/i.test(file.name);
-      $('info').textContent = `Archivo: ${file.name}`;
-      const reader = new FileReader();
-      reader.onload = () => { dataBuffer = reader.result; };
-      isZip ? reader.readAsArrayBuffer(file) : reader.readAsText(file);
+      const f=e.target.files[0]; if(!f)return;
+      isZip=/\.mxl$/i.test(f.name);
+      $('info').textContent=`${f.name}`;
+      const r=new FileReader();
+      r.onload=()=>dataBuffer=r.result;
+      isZip?r.readAsArrayBuffer(f):r.readAsText(f);
     });
 
-    // 3) Opciones de layout/escala
-    function applyOptions() {
-      toolkit.setOptions({
-        pageWidth: 2000,
-        pageHeight:2600,
-        scale: parseInt($('scaleInput').value, 10)
+    // Render + timemap
+    $('renderBtn').onclick = ()=>{
+      if(!dataBuffer) return;
+      toolkit.setOptions({pageWidth:2000,pageHeight:2600,scale:+$('scaleInput').value});
+      if(isZip) toolkit.loadZipDataBuffer(new Uint8Array(dataBuffer),dataBuffer.byteLength);
+      else      toolkit.loadData(dataBuffer);
+      totalPages=toolkit.getPageCount(); currentPage=1;
+      $('pageMax').textContent=totalPages;
+      $('notation').innerHTML=toolkit.renderToSVG(currentPage);
+      $('pageNow').textContent=currentPage;
+      const tmJSON=toolkit.renderToTimemap({includeMeasures:true});
+      timemap=JSON.parse(tmJSON);
+      // extraer compases
+      measureStarts=[];
+      let lastQ=-1, idx=1;
+      timemap.forEach(e=>{
+        if(e.hasOwnProperty('qstamp')){
+          const q=e.qstamp;
+          if(Math.abs(q-Math.round(q))<1e-5 && q>lastQ){
+            measureStarts[idx++] = (e.tstamp||0)/1000;
+            lastQ=q;
+          }
+        }
       });
-    }
+    };
+    $('prevBtn').onclick = ()=>{ if(currentPage>1){currentPage--;$('notation').innerHTML=toolkit.renderToSVG(currentPage);$('pageNow').textContent=currentPage;}};
+    $('nextBtn').onclick = ()=>{ if(currentPage<totalPages){currentPage++;$('notation').innerHTML=toolkit.renderToSVG(currentPage);$('pageNow').textContent=currentPage;}};
+    $('applyScale').onclick = ()=>{ $('notation').innerHTML=toolkit.renderToSVG(currentPage); };
 
-    // 4) Render inicial (XML o MXL)
-    function renderInitial() {
-      if (!dataBuffer) return;
-      applyOptions();
-
-      if (isZip) {
-        toolkit.loadZipDataBuffer(new Uint8Array(dataBuffer), dataBuffer.byteLength);
+    // Motor/Inst
+    $('engineSelect').onchange = e=>engine=e.target.value;
+    $('loadInstBtn').onclick = async ()=>{
+      $('instInfo').textContent='Cargando...';
+      if(engine==='sampler'){
+        sampler=SampleLibrary.load({instruments:$('instrumentSelect').value,baseUrl:BASE_URL});
+        sampler.toDestination();
+        await Tone.loaded();
+        $('instInfo').textContent='Sampler listo';
       } else {
-        toolkit.loadData(dataBuffer);
+        sampler=null; synthMap={};
+        $('instInfo').textContent='Synth listo';
       }
+    };
 
-      totalPages = toolkit.getPageCount();
-      currentPage = 1;
-      $('pageMax').textContent = totalPages;
-      $('prevBtn').disabled = totalPages <= 1;
-      $('nextBtn').disabled = totalPages <= 1;
-
-      $('notation').innerHTML = toolkit.renderToSVG(currentPage);
-      $('pageNow').textContent = currentPage;
-    }
-
-    // 5) Navegación de páginas
-    function renderPage(page) {
-      if (page < 1 || page > totalPages) return;
-      $('notation').innerHTML = toolkit.renderToSVG(page);
-      currentPage = page;
-      $('pageNow').textContent = currentPage;
-    }
-
-    // 6) Enlaces a botones de render/paginación
-    $('renderBtn').onclick  = renderInitial;
-    $('prevBtn').onclick    = () => renderPage(currentPage - 1);
-    $('nextBtn').onclick    = () => renderPage(currentPage + 1);
-    $('applyScale').onclick = () => { applyOptions(); renderPage(currentPage); };
-
-    // 7) Sampler de piano (Salamander). Se carga bajo demanda.
-    function ensureSampler() {
-      if (sampler) return sampler;
-      sampler = new Tone.Sampler({
-        urls: {
-          "C4":  "C4.mp3",
-          "D#4": "Ds4.mp3",
-          "F#4": "Fs4.mp3",
-          "A4":  "A4.mp3",
-          "C5":  "C5.mp3"
-        },
-        release: 1,
-        baseUrl: "https://tonejs.github.io/audio/salamander/"
-      }).toDestination();
-      return sampler;
-    }
-
-    // 8) Programar reproducción (a partir de MusicXML texto)
-    Tone.Transport.bpm.value = 120;
-
-    function schedulePlayback(xmlString) {
-      // Limpieza por si el usuario pulsó Play varias veces
-      Tone.Transport.stop();
-      Tone.Transport.cancel(0);
-      Tone.Transport.position = 0;
-
-      const xmlDoc = new DOMParser().parseFromString(xmlString, "application/xml");
-      const divisions = parseFloat(xmlDoc.querySelector("divisions")?.textContent || "1");
-
-      let timeSec = 0; // acumulador en segundos
-
-      xmlDoc.querySelectorAll("note").forEach(noteEl => {
-        if (noteEl.querySelector("rest")) return;
-
-        const step   = noteEl.querySelector("step")?.textContent   || "C";
-        const alter  = noteEl.querySelector("alter")?.textContent  || "0";
-        const octave = noteEl.querySelector("octave")?.textContent || "4";
-        const acc    = alter === "1" ? "#" : (alter === "-1" ? "b" : "");
-        const pitch  = `${step}${acc}${octave}`;
-
-        const durDivs = parseFloat(noteEl.querySelector("duration")?.textContent || divisions);
-        const ratio   = durDivs / divisions; // fracción de negra
-        const durVal  = ratio >= 1    ? "4n"
-                        : ratio >= 0.5 ? "8n"
-                        : ratio >= 0.25? "16n"
-                                        : "32n";
-
-        // Programar a 'timeSec' (segundos) y convertir la duración musical a segundos
-        Tone.Transport.schedule(t => {
-          const player = sampler || fallbackSynth;
-          player.triggerAttackRelease(pitch, durVal, t);
-        }, timeSec);
-
-        // Avanzar el cursor en segundos según el valor musical
-        timeSec += Tone.Time(durVal).toSeconds();
+    // Mixer UI
+    function buildMixer(staves){
+      const mix=$('mixer'); mix.innerHTML='';
+      staves.forEach(st=>{
+        if(!(st in staffGain)) staffGain[st]=1;
+        const d=document.createElement('div');d.innerHTML=`
+          <strong>Staff ${st}</strong><br>
+          <input type=range min=0 max=1 step=.01 value="${staffGain[st]}" data-st="${st}" class="vol">
+          <button data-st="${st}" class="mute">${staffMute[st]?'Unmute':'Mute'}</button>
+          <button data-st="${st}" class="solo">${staffSolo===st?'Unsolo':'Solo'}</button>`;
+        mix.appendChild(d);
+      });
+      mix.querySelectorAll('.vol').forEach(r=>r.oninput=e=>{
+        const s=+e.target.dataset.st; staffGain[s]=+e.target.value;
+      });
+      mix.querySelectorAll('.mute').forEach(b=>b.onclick=e=>{
+        const s=+e.target.dataset.st; staffMute[s]=!staffMute[s]; buildMixer(staves);
+      });
+      mix.querySelectorAll('.solo').forEach(b=>b.onclick=e=>{
+        const s=+e.target.dataset.st; staffSolo=(staffSolo===s?null:s); buildMixer(staves);
       });
     }
 
-    // 9) Reproducir / Detener
-    $('playBtn').onclick = async () => {
-      if (!dataBuffer) return;
-      if (isZip) { alert("Para reproducir usa un .xml/.musicxml (no .mxl)"); return; }
+    // Programación desde timemap
+    function schedule(){
+      // limpiar
+      Tone.Transport.stop(); Tone.Transport.cancel(0); Tone.Transport.position=0;
+      document.querySelectorAll('g.note.playing').forEach(el=>el.classList.remove('playing'));
+      document.querySelectorAll('g.measure.current-measure').forEach(el=>el.classList.remove('current-measure'));
+      // preparar MIDI attrs
+      toolkit.renderToMIDI();
+      const cache=new Map(), staves=new Set();
+      function info(id){
+        if(cache.has(id)) return cache.get(id);
+        let midi=60, staff=1;
+        try{ midi=JSON.parse(toolkit.getMIDIValuesForElement(id)).midi; }catch{}
+        try{ staff=JSON.parse(toolkit.getElementAttr(id)).staff||1; }catch{}
+        staves.add(staff);
+        const o={midi,staff}; cache.set(id,o); return o;
+      }
+      buildMixer([...staves]);
 
-      await Tone.start();     // requisito de autoplay: gesto del usuario
-      ensureSampler();        // crear/cargar sampler si hace falta
-      await Tone.loaded();    // esperar a que TODAS las muestras estén listas
+      // highlight loop repeat
+      Tone.Transport.scheduleRepeat(()=>{
+        const realSec=Tone.Transport.seconds;
+        const scoreMs=realSec*1000*(baseTempo/tempoNow);
+        const obj=JSON.parse(toolkit.getElementsAtTime(Math.floor(scoreMs)));
+        if(!obj.page) return;
+        if(obj.page!==currentPage){ currentPage=obj.page; $('notation').innerHTML=toolkit.renderToSVG(currentPage);}
+        document.querySelectorAll('g.note.playing').forEach(el=>el.classList.remove('playing'));
+        obj.notes.forEach(id=>{
+          const el=document.getElementById(id);
+          if(el) el.classList.add('playing');
+        });
+        // compás actual
+        const sec=scoreMs/1000;
+        let cm=1;
+        for(let i=1;i<measureStarts.length;i++){
+          if(sec>=measureStarts[i]) cm=i; else break;
+        }
+        $('meterNow').textContent=`Compás: ${cm}`;
+        const msel=document.querySelector(`#notation g.measure[id*="${cm}"]`);
+        if(msel) msel.classList.add('current-measure');
+      }, 0.05);
 
-      schedulePlayback(dataBuffer);
+      // notas on/off
+      timemap.forEach(evt=>{
+        if(evt.on?.length){
+          const when=(evt.tstamp||0)/1000*(baseTempo/tempoNow);
+          Tone.Transport.schedule(time=>{
+            evt.on.forEach(id=>{
+              const {midi,staff}=info(id);
+              let vel=staffGain[staff];
+              if(staffSolo!=null && staff!==staffSolo) vel*=0.2;
+              if(staffMute[staff]) vel=0;
+              if(vel>0){
+                if(sampler){
+                  Tone.Frequency(midi,"midi").toNote;
+                  sampler.triggerAttackRelease(Tone.Frequency(midi,"midi").toNote(),0.5,time,vel);
+                } else {
+                  if(!synthMap[staff]){
+                    synthMap[staff]=new Tone.PolySynth(Tone.Synth).toDestination();
+                  }
+                  synthMap[staff].triggerAttackRelease(
+                    Tone.Frequency(midi,"midi"),0.5,time,vel
+                  );
+                }
+              }
+            });
+          }, when);
+        }
+      });
+    }
+
+    // Play/Stop
+    $('playBtn').onclick = async ()=>{
+      if(!dataBuffer||isZip)return alert("Use .xml/.musicxml");
+      await Tone.start(); // gesto usr
+      tempoNow=+$('tempoRange').value; $('tempoVal').textContent=tempoNow;
+      schedule();
       Tone.Transport.start();
     };
+    $('stopBtn').onclick = ()=>{ Tone.Transport.stop(); Tone.Transport.cancel(0); Tone.Transport.position=0; };
 
-    $('stopBtn').onclick = () => {
-      Tone.Transport.stop();
-      Tone.Transport.cancel(0);
-      Tone.Transport.position = 0;
+    // Tempo slider
+    $('tempoRange').oninput = e=>{
+      $('tempoVal').textContent=e.target.value;
+      if(Tone.Transport.state==='started'){
+        schedule(); Tone.Transport.start();
+      }
     };
+
+    // Loop
+    function secOfBar(n){
+      return (measureStarts[n]||0)*(baseTempo/tempoNow);
+    }
+    $('applyLoop').onclick = ()=>{
+      const a=+$('loopStart').value, b=+$('loopEnd').value;
+      Tone.Transport.setLoopPoints(secOfBar(a),secOfBar(b));
+      Tone.Transport.loop=true;
+    };
+    $('clearLoop').onclick = ()=>{
+      Tone.Transport.loop=false;
+      Tone.Transport.setLoopPoints(0,0);
+    };
+  })();
   </script>
 </body>
 </html>
