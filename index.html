@@ -14,20 +14,20 @@
     button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
   </style>
 
-  <!-- CARGA OFICIAL (recomendada por la documentación) -->
-  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
+  <!-- Toolkit JS desde jsDelivr (JS y WASM viven en /dist de la MISMA versión) -->
+  <script src="https://cdn.jsdelivr.net/npm/verovio@5.4.0/dist/verovio-toolkit-wasm.js" defer></script>
 
-  <!-- (Opcional pero útil) Forzamos que el .wasm se busque en esa misma URL -->
+  <!-- (Opcional) Loguea por consola la URL que usará el WASM, útil para debug -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    verovio.module.locateFile = (path, prefix) => {
-      if (path.endsWith('.wasm')) {
-        // El .wasm se descargará desde el mismo directorio "latest" en verovio.org
-        return 'https://www.verovio.org/javascript/latest/' + path;
-      }
-      return path;
+    // Emscripten usa locateFile para resolver el .wasm: aquí solo lo logueamos.
+    const _locateFile = (path, prefix) => {
+      const url = (prefix || '') + path;
+      console.log('[Verovio locateFile]', { path, prefix, url });
+      return url;
     };
+    verovio.module.locateFile = _locateFile;
   </script>
 </head>
 <body>
@@ -43,7 +43,7 @@
   <div id="score"></div>
 
   <script>
-    // --- Ejemplo MusicXML incrustado (sin fetch externo) ---
+    // MusicXML de ejemplo (embebido; sin fetch externo)
     const DEMO = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="3.1">
@@ -67,13 +67,12 @@
     const setStatus = (m='') => $status.textContent = m;
     const isMXL = (n='') => n.toLowerCase().endsWith('.mxl');
 
-    // Watchdog para detectar si el .wasm no cargó por alguna razón
+    // Watchdog por si el .wasm no carga
     const watchdog = setTimeout(() => {
-      setStatus('⚠️ Verovio no se pudo inicializar. Revisa la pestaña Network → filtro "wasm".');
-    }, 8500);
+      setStatus('⚠️ Verovio no se pudo inicializar. Abre DevTools → Network → filtra "wasm" y verifica 200 en /dist/verovio-toolkit-wasm.wasm');
+    }, 9000);
 
-    // La guía oficial indica escuchar onRuntimeInitialized antes de crear el toolkit
-    // https://book.verovio.org/first-steps/getting-started.html
+    // Inicializa cuando el WASM esté listo (patrón recomendado en la guía)
     document.addEventListener("DOMContentLoaded", () => {
       verovio.module.onRuntimeInitialized = () => {
         clearTimeout(watchdog);
@@ -83,7 +82,7 @@
     });
 
     function render() {
-      const svg = tk.renderToSVG(1, {}); // primera página
+      const svg = tk.renderToSVG(1, {});
       $score.innerHTML = svg;
     }
 
@@ -115,6 +114,7 @@
   </script>
 </body>
 </html>
+
 
 
 
