@@ -1,81 +1,218 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>Visor Verovio App</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <title>Verovio – Visor simple (MEI / MusicXML / MXL)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { margin:0; font-family:system-ui,sans-serif; background:#fafafa }
-    header { padding:1rem; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.1) }
-    #app { margin:1rem; border:1px solid #ccc; min-height:600px; background:#fff }
-    input, button { padding:.5rem; font-size:1rem }
+    :root { --pad: 16px; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #fafafa; }
+    header { padding: var(--pad); background: #fff; position: sticky; top: 0; border-bottom: 1px solid #ddd; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input[type="file"] { max-width: 320px; }
+    textarea { width: min(900px,95vw); height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .board { margin: var(--pad); background: #fff; border: 1px solid #ddd; min-height: 400px; }
+    .status { font-size: 14px; color: #555; min-height: 1.2em; }
+    button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
   </style>
 
-  <!-- 1) Configuramos dónde encontrar el .wasm (en la raíz) -->
+  <!-- 1) Decirle al loader dónde está el .wasm (en la raíz) -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    verovio.module.locateFile = path => path;
+    // El toolkit pedirá "verovio-toolkit-wasm.wasm" → lo servimos desde la raíz
+    verovio.module.locateFile = (path) => path;
   </script>
 
-  <!-- 2) Carga del toolkit WASM (pon “verovio-toolkit-wasm.js” en la raíz) -->
-  <script src="verovio-toolkit-wasm.js"></script>
-
-  <!-- 3) Carga de la UI de la App: debes haber colocado en la raíz 
-       **el fichero** `verovio-app.js` **descargado de** 
-       https://editor.verovio.org/javascript/app/verovio-app.js -->
-  <script src="verovio-app.js"></script>
+  <!-- 2) Cargar el toolkit WASM DESDE LA RAÍZ -->
+  <script src="verovio-toolkit-wasm.js" defer></script>
 </head>
 <body>
-
   <header>
-    <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl">
-    <button id="loadFile">Cargar archivo</button>
+    <div class="row">
+      <label><strong>Archivo</strong>:
+        <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl" />
+      </label>
+      <button id="btnFile">Cargar archivo</button>
+
+      <button id="btnTogglePaste">Pegar texto</button>
+      <button id="btnEjemplo">Cargar ejemplo</button>
+      <button id="btnLimpiar">Limpiar</button>
+
+      <span id="status" class="status">Inicializando Verovio…</span>
+    </div>
+
+    <div id="pasteZone" class="row" style="display:none; margin-top:8px;">
+      <textarea id="txt" placeholder="Pega aquí MEI o MusicXML (no .mxl comprimido)"></textarea>
+      <button id="btnCargarTexto">Renderizar texto</button>
+    </div>
+
+    <div class="row" style="margin-top:8px;">
+      <button id="prev" disabled>◀ Prev</button>
+      <span id="pageInfo">—</span>
+      <button id="next" disabled>Next ▶</button>
+      <button id="zoomOut" disabled>–</button>
+      <span>Zoom</span>
+      <button id="zoomIn" disabled>+</button>
+    </div>
   </header>
 
-  <div id="app"></div>
+  <div id="score" class="board"></div>
 
-  <!-- 4) Lógica: instanciamos Verovio.App UNA VEZ que la UI ya está cargada -->
   <script>
-    // Esperamos al DOM y a que verovio-app.js haya registrado Verovio.App
-    window.addEventListener('DOMContentLoaded', () => {
-      if (typeof Verovio === 'undefined') {
-        console.error('Verovio.App no está definido: revisa que verovio-app.js se haya cargado.');
-        return;
-      }
+    // ==== MusicXML de ejemplo (embebido, sin fetch) ====
+    const DEMO_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Demo</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><rest/><duration>1</duration><type>quarter</type></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+</score-partwise>`;
 
-      const app = new Verovio.App(
-        document.getElementById('app'),
-        { defaultView: 'document', documentZoom: 4 }
-      );
+    // ==== Referencias UI ====
+    const $file = document.getElementById('file');
+    const $btnFile = document.getElementById('btnFile');
+    const $status = document.getElementById('status');
+    const $pasteZone = document.getElementById('pasteZone');
+    const $btnTogglePaste = document.getElementById('btnTogglePaste');
+    const $btnCargarTexto = document.getElementById('btnCargarTexto');
+    const $txt = document.getElementById('txt');
+    const $btnEjemplo = document.getElementById('btnEjemplo');
+    const $btnLimpiar = document.getElementById('btnLimpiar');
+    const $score = document.getElementById('score');
+    const $prev = document.getElementById('prev');
+    const $next = document.getElementById('next');
+    const $pageInfo = document.getElementById('pageInfo');
+    const $zoomIn = document.getElementById('zoomIn');
+    const $zoomOut = document.getElementById('zoomOut');
 
-      // Función para cargar .mxl (zip → MEI)
-      async function loadMXL(buffer) {
-        const tk = app.toolkit;
-        tk.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
-        const mei = tk.getMEI({});
-        await app.loadData(mei);
-      }
+    // ==== Estado ====
+    let tk = null;          // verovio.toolkit
+    let page = 1;           // página actual
+    let zoom = 40;          // escala
+    let pageCount = 1;
 
-      // Función para cargar texto MEI/MusicXML
-      async function loadText(text) {
-        await app.loadData(text);
-      }
+    const setStatus = (msg='') => { $status.textContent = msg; };
+    const isMXL = (name='') => name.toLowerCase().endsWith('.mxl');
 
-      document.getElementById('loadFile').addEventListener('click', async () => {
-        const f = document.getElementById('file').files[0];
-        if (!f) return alert('Selecciona un archivo primero');
-        const name = f.name.toLowerCase();
-        const buf  = await f.arrayBuffer();
-        if (name.endsWith('.mxl')) {
-          await loadMXL(buf);
-        } else {
-          const text = new TextDecoder().decode(buf);
-          await loadText(text);
-        }
+    // ==== Inicialización del toolkit ====
+    // verovio-toolkit-wasm.js define window.verovio. Cuando el WASM está listo, dispara:
+    // verovio.module.onRuntimeInitialized
+    verovio = window.verovio || {};
+    verovio.module = verovio.module || {};
+
+    // Watchdog para mostrar un mensaje claro si el .wasm no carga
+    const watchdog = setTimeout(() => {
+      setStatus('⚠️ Verovio no se pudo inicializar. Revisa en Network que "verovio-toolkit-wasm.wasm" responde 200 en la raíz.');
+    }, 8000);
+
+    verovio.module.onRuntimeInitialized = () => {
+      clearTimeout(watchdog);
+      tk = new verovio.toolkit({
+        scale: zoom,
+        pageWidth: 2100,
+        pageHeight: 2970
       });
+      [$prev, $next, $zoomIn, $zoomOut].forEach(el => el.disabled = false);
+      setStatus('Listo. Carga un archivo, pega texto o usa el ejemplo.');
+    };
+
+    function updateNav() {
+      $pageInfo.textContent = `Página ${page} / ${pageCount}`;
+      $prev.disabled = page <= 1;
+      $next.disabled = page >= pageCount;
+    }
+
+    function renderPage() {
+      if (!tk) return;
+      const svg = tk.renderToSVG(page, {});
+      $score.innerHTML = svg;
+      pageCount = tk.getPageCount();
+      updateNav();
+    }
+
+    function loadText(text) {
+      if (!tk) return setStatus('Verovio no está listo.');
+      tk.loadData(text);     // MEI o MusicXML (texto)
+      page = 1;
+      renderPage();
+      setStatus('Listo');
+    }
+
+    function loadMXL(buffer) {
+      if (!tk) return setStatus('Verovio no está listo.');
+      const bytes = new Uint8Array(buffer);
+      const ok = tk.loadZipDataBuffer(bytes, bytes.length); // abre .mxl
+      if (!ok) return setStatus('MXL no reconocido');
+      page = 1;
+      renderPage();
+      setStatus('Listo');
+    }
+
+    // ==== Handlers UI ====
+    $btnFile.addEventListener('click', async () => {
+      const f = $file.files?.[0];
+      if (!f) return setStatus('Selecciona un archivo primero.');
+      try {
+        if (isMXL(f.name)) {
+          const buf = await f.arrayBuffer();
+          loadMXL(buf);
+        } else {
+          const txt = await f.text();
+          loadText(txt);
+        }
+      } catch (e) {
+        console.error(e);
+        setStatus('Error: ' + (e?.message || e));
+        $score.textContent = 'No se pudo renderizar la partitura.';
+      }
     });
+
+    $btnTogglePaste.addEventListener('click', () => {
+      $pasteZone.style.display = $pasteZone.style.display === 'none' ? 'flex' : 'none';
+    });
+
+    $btnCargarTexto.addEventListener('click', () => {
+      const val = $txt.value.trim();
+      if (!val) return setStatus('Pega contenido primero.');
+      loadText(val);
+    });
+
+    $btnEjemplo.addEventListener('click', () => {
+      loadText(DEMO_MUSICXML); // sin fetch externo, evita CORS
+    });
+
+    $btnLimpiar.addEventListener('click', () => {
+      $score.innerHTML = '';
+      $file.value = '';
+      setStatus('');
+      page = 1; pageCount = 1; updateNav();
+    });
+
+    $prev.addEventListener('click', () => { if (page > 1) { page--; renderPage(); } });
+    $next.addEventListener('click', () => { if (page < pageCount) { page++; renderPage(); } });
+    $zoomIn.addEventListener('click', () => { if (!tk) return; zoom = Math.min(zoom + 5, 120); tk.setOptions({ scale: zoom }); renderPage(); });
+    $zoomOut.addEventListener('click', () => { if (!tk) return; zoom = Math.max(zoom - 5, 20); tk.setOptions({ scale: zoom }); renderPage(); });
   </script>
+</body>
+</html>
+
 
 </body>
 </html>
