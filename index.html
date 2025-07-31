@@ -2,20 +2,28 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>MusicXML/MXL → SVG con Verovio (CDN)</title>
-  <!-- 1) Carga Verovio WASM -->
-  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
+  <title>MusicXML/MXL → SVG + Selector de Instrumento</title>
+
+  <!-- 1) Verovio WASM por CDN -->
+  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script> <!-- :contentReference[oaicite:5]{index=5} -->
+
+  <!-- 2) Tone.js por CDN -->
+  <script src="https://unpkg.com/tone"></script> <!-- :contentReference[oaicite:6]{index=6} -->
+
+  <!-- 3) Librería de instrumentos para Tone.js -->
+  <script src="https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/Tonejs-Instruments.js"></script> <!-- :contentReference[oaicite:7]{index=7} -->
+
   <style>
     body { font-family: sans-serif; margin: 1rem; }
-    #notation { border: 1px solid #ddd; padding: 1rem; min-height:200px; }
-    .controls { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:0.5rem; }
-    button, input { padding:0.4rem 0.8rem; }
+    #notation { border: 1px solid #ddd; padding: 1rem; min-height: 200px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+    button, input, select { padding: 0.4rem 0.8rem; }
   </style>
 </head>
 <body>
-  <h1>Convertir MusicXML/MXL → SVG</h1>
+  <h1>MusicXML/MXL → SVG con Selección de Instrumento</h1>
 
-  <!-- Selección de archivo y render -->
+  <!-- Archivo y Render -->
   <div class="controls">
     <input id="fileInput" type="file" accept=".xml,.musicxml,.mxl" />
     <button id="renderBtn" disabled>Renderizar</button>
@@ -36,91 +44,154 @@
     <button id="applyScale" disabled>Aplicar</button>
   </div>
 
+  <!-- Selector de Instrumento -->
+  <div class="controls">
+    <label for="instrumentSelect">Instrumento</label>
+    <select id="instrumentSelect">
+      <option value="piano">Piano</option>
+      <option value="guitar-acoustic">Guitarra acústica</option>
+      <option value="guitar-electric">Guitarra eléctrica</option>
+      <option value="violin">Violín</option>
+      <option value="cello">Violonchelo</option>
+      <option value="flute">Flauta</option>
+      <option value="clarinet">Clarinete</option>
+      <option value="trumpet">Trompeta</option>
+      <option value="trombone">Trombón</option>
+      <option value="saxophone">Saxofón</option>
+      <option value="bassoon">Fagot</option>
+      <option value="french-horn">Corno francés</option>
+      <option value="harp">Arpa</option>
+      <option value="organ">Órgano</option>
+      <option value="harmonium">Harmonium</option>
+      <option value="bass-electric">Bajo eléctrico</option>
+      <option value="tuba">Tuba</option>
+      <option value="xylophone">Xilófono</option>
+    </select>
+    <button id="loadInstBtn" disabled>Cargar Instrumento</button>
+  </div>
+
+  <!-- Reproducción -->
+  <div class="controls">
+    <button id="playBtn" disabled>Reproducir</button>
+    <button id="stopBtn" disabled>Detener</button>
+  </div>
+
   <!-- Contenedor SVG -->
   <div id="notation"></div>
 
   <script>
-    // Helper para acceder a elementos
     const $ = id => document.getElementById(id);
 
-    let toolkit,           // instancia de Verovio
-        dataBuffer,        // MusicXML texto o MXL ArrayBuffer
-        isZip = false,
-        currentPage = 1,
-        totalPages = 1;
+    // Estado global
+    let toolkit, dataBuffer, isZip = false;
+    let currentPage = 1, totalPages = 1;
+    let instrumentObj = null;         // Instancia cargada de SampleLibrary
+    const synthFallback = new Tone.Synth().toDestination();  // :contentReference[oaicite:8]{index=8}
 
-    // 2) Inicializar Verovio una vez cargado el WASM
+    // 1) Inicializar Verovio y habilitar botones
     document.addEventListener('DOMContentLoaded', () => {
       verovio.module.onRuntimeInitialized = () => {
-        toolkit = new verovio.toolkit();             // :contentReference[oaicite:4]{index=4}
-        $('renderBtn').disabled   = false;
-        $('applyScale').disabled  = false;
+        toolkit = new verovio.toolkit();                        // :contentReference[oaicite:9]{index=9}
+        ['renderBtn','applyScale','loadInstBtn','playBtn','stopBtn']
+          .forEach(id => $(id).disabled = false);
       };
     });
 
-    // 3) Lectura del archivo seleccionado
+    // 2) Leer archivo (.xml/.mxl)
     $('fileInput').addEventListener('change', e => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const file = e.target.files[0]; if (!file) return;
       isZip = /\.mxl$/i.test(file.name);
       $('info').textContent = `Archivo: ${file.name}`;
       const reader = new FileReader();
-      reader.onload = () => { dataBuffer = reader.result; };
-      if (isZip) reader.readAsArrayBuffer(file);
-      else      reader.readAsText(file);
+      reader.onload = () => dataBuffer = reader.result;
+      isZip ? reader.readAsArrayBuffer(file) : reader.readAsText(file);
     });
 
-    // 4) Aplicar opciones de layout/escala
+    // 3) Opciones de layout/escala
     function applyOptions() {
       toolkit.setOptions({
-        pageWidth: 2000,
-        pageHeight:2600,
-        scale:    parseInt($('scaleInput').value, 10)
-      });
+        pageWidth: 2000, pageHeight: 2600,
+        scale: parseInt($('scaleInput').value, 10)
+      });                                                       // 
     }
 
-    // 5) Render inicial (XML o MXL)
+    // 4) Render inicial SVG
     function renderInitial() {
       if (!dataBuffer) return;
       applyOptions();
 
       if (isZip) {
-        // Corregido: pasar también la longitud del buffer
         toolkit.loadZipDataBuffer(
-          new Uint8Array(dataBuffer),  // ArrayBuffer → Uint8Array
-          dataBuffer.byteLength         // longitud en bytes :contentReference[oaicite:5]{index=5}
+          new Uint8Array(dataBuffer), dataBuffer.byteLength      // 
         );
       } else {
-        toolkit.loadData(dataBuffer);  // cargar texto MusicXML :contentReference[oaicite:6]{index=6}
+        toolkit.loadData(dataBuffer);                            // :contentReference[oaicite:12]{index=12}
       }
 
-      totalPages = toolkit.getPageCount();
+      totalPages = toolkit.getPageCount();                       // 
       currentPage = 1;
       $('pageMax').textContent = totalPages;
       $('prevBtn').disabled = totalPages <= 1;
       $('nextBtn').disabled = totalPages <= 1;
 
-      // Renderiza la página actual
-      $('notation').innerHTML = toolkit.renderToSVG(currentPage);
+      $('notation').innerHTML = toolkit.renderToSVG(currentPage); // 
       $('pageNow').textContent = currentPage;
     }
 
-    // 6) Navegación de páginas
+    // 5) Navegar páginas
     function renderPage(page) {
-      if (page < 1 || page > totalPages) return;
-      toolkit.setOptions({});  // opcional: re-aplicar si cambian opciones dinámicas
-      $('notation').innerHTML = toolkit.renderToSVG(page);
-      currentPage = page;
-      $('pageNow').textContent = currentPage;
+      if (page<1||page>totalPages) return;
+      $('notation').innerHTML = toolkit.renderToSVG(page);      // 
+      currentPage = page; $('pageNow').textContent = page;
     }
 
-    // 7) Enlaces a botones
-    $('renderBtn').onclick   = renderInitial;
-    $('prevBtn').onclick     = () => renderPage(currentPage - 1);
-    $('nextBtn').onclick     = () => renderPage(currentPage + 1);
-    $('applyScale').onclick  = () => {
-      applyOptions();
-      renderPage(currentPage);
+    // 6) Cargar instrumento seleccionado
+    $('loadInstBtn').onclick = () => {
+      const inst = $('instrumentSelect').value;
+      instrumentObj = SampleLibrary.load({ instruments: inst }); // :contentReference[oaicite:16]{index=16}
+      instrumentObj.toDestination();
+    };
+
+    // 7) Programar y reproducir notas con Tone.Transport
+    Tone.Transport.bpm.value = 120;                              // :contentReference[oaicite:17]{index=17}
+    function schedulePlayback(xmlString) {
+      const xmlDoc = new DOMParser().parseFromString(xmlString, "application/xml"); // :contentReference[oaicite:18]{index=18}
+      const divisions = parseFloat(xmlDoc.querySelector("divisions")?.textContent||"1"); // :contentReference[oaicite:19]{index=19}
+      let time=0;
+
+      xmlDoc.querySelectorAll("note").forEach(noteEl => {
+        if (noteEl.querySelector("rest")) return;
+        const step   = noteEl.querySelector("step")?.textContent   || "C";
+        const alter  = noteEl.querySelector("alter")?.textContent  || "0";
+        const octave = noteEl.querySelector("octave")?.textContent || "4";
+        const acc    = alter==="1" ? "#" : alter==="-1" ? "b" : "";
+        const pitch  = `${step}${acc}${octave}`;
+
+        const durDivs = parseFloat(noteEl.querySelector("duration")?.textContent||divisions);
+        const ratio   = durDivs/divisions;
+        const durVal  = ratio>=1?"4n":ratio>=0.5?"8n":ratio>=0.25?"16n":"32n";
+        
+        Tone.Transport.schedule(t => {
+          const player = instrumentObj || synthFallback;
+          player.triggerAttackRelease(pitch, durVal, t);        // :contentReference[oaicite:20]{index=20}
+        }, time);
+
+        time += ratio;
+      });
+    }
+
+    // 8) Botones y eventos
+    $('renderBtn').onclick    = renderInitial;
+    $('prevBtn').onclick      = () => renderPage(currentPage-1);
+    $('nextBtn').onclick      = () => renderPage(currentPage+1);
+    $('applyScale').onclick   = () => { applyOptions(); renderPage(currentPage); };
+    $('playBtn').onclick      = () => {
+      if (!dataBuffer || isZip) return;
+      schedulePlayback(dataBuffer);
+      Tone.Transport.start();                                  // :contentReference[oaicite:21]{index=21}
+    };
+    $('stopBtn').onclick      = () => {
+      Tone.Transport.stop(); Tone.Transport.cancel(0);         // :contentReference[oaicite:22]{index=22}
     };
   </script>
 </body>
