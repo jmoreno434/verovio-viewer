@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -10,8 +10,24 @@
     #app { margin:1rem; border:1px solid #ccc; min-height:600px; background:#fff }
     input, button { padding:.5rem; font-size:1rem }
   </style>
+
+  <!-- 1) Configuramos dónde encontrar el .wasm (en la raíz) -->
+  <script>
+    window.verovio = window.verovio || {};
+    verovio.module = verovio.module || {};
+    verovio.module.locateFile = path => path;
+  </script>
+
+  <!-- 2) Carga del toolkit WASM (pon “verovio-toolkit-wasm.js” en la raíz) -->
+  <script src="verovio-toolkit-wasm.js"></script>
+
+  <!-- 3) Carga de la UI de la App: debes haber colocado en la raíz 
+       **el fichero** `verovio-app.js` **descargado de** 
+       https://editor.verovio.org/javascript/app/verovio-app.js -->
+  <script src="verovio-app.js"></script>
 </head>
 <body>
+
   <header>
     <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl">
     <button id="loadFile">Cargar archivo</button>
@@ -19,53 +35,49 @@
 
   <div id="app"></div>
 
-  <!-- 1) Configura dónde está el .wasm (en la raíz) -->
+  <!-- 4) Lógica: instanciamos Verovio.App UNA VEZ que la UI ya está cargada -->
   <script>
-    window.verovio = window.verovio || {};
-    verovio.module = verovio.module || {};
-    verovio.module.locateFile = path => path;
-  </script>
-
-  <!-- 2) Toolkit WASM (ya en la raíz como verovio-toolkit-wasm.js) -->
-  <script src="verovio-toolkit-wasm.js" defer></script>
-
-  <!-- 3) UI de la App: importa el módulo ESM renombrado a verovio.mjs -->
-  <script type="module" src="verovio.mjs"></script>
-
-  <!-- 4) Lógica para cargar MEI/MusicXML/MXL -->
-  <script type="module">
-    // Espera a que verovio.mjs registre Verovio.App
-    const app = new Verovio.App(
-      document.getElementById('app'),
-      { defaultView: 'document', documentZoom: 4 }
-    );
-
-    // Carga un .mxl (zip) convirtiéndolo a MEI
-    async function loadMXL(buffer) {
-      const tk = app.toolkit;
-      tk.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
-      const mei = tk.getMEI({});
-      await app.loadData(mei);
-    }
-
-    // Carga texto MEI o MusicXML
-    async function loadText(txt) {
-      await app.loadData(txt);
-    }
-
-    document.getElementById('loadFile').addEventListener('click', async () => {
-      const f = document.getElementById('file').files[0];
-      if (!f) return alert('Selecciona un archivo primero');
-      const name = f.name.toLowerCase();
-      const buf  = await f.arrayBuffer();
-      if (name.endsWith('.mxl')) {
-        await loadMXL(buf);
-      } else {
-        const txt = new TextDecoder().decode(buf);
-        await loadText(txt);
+    // Esperamos al DOM y a que verovio-app.js haya registrado Verovio.App
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof Verovio === 'undefined') {
+        console.error('Verovio.App no está definido: revisa que verovio-app.js se haya cargado.');
+        return;
       }
+
+      const app = new Verovio.App(
+        document.getElementById('app'),
+        { defaultView: 'document', documentZoom: 4 }
+      );
+
+      // Función para cargar .mxl (zip → MEI)
+      async function loadMXL(buffer) {
+        const tk = app.toolkit;
+        tk.loadZipDataBuffer(new Uint8Array(buffer), buffer.byteLength);
+        const mei = tk.getMEI({});
+        await app.loadData(mei);
+      }
+
+      // Función para cargar texto MEI/MusicXML
+      async function loadText(text) {
+        await app.loadData(text);
+      }
+
+      document.getElementById('loadFile').addEventListener('click', async () => {
+        const f = document.getElementById('file').files[0];
+        if (!f) return alert('Selecciona un archivo primero');
+        const name = f.name.toLowerCase();
+        const buf  = await f.arrayBuffer();
+        if (name.endsWith('.mxl')) {
+          await loadMXL(buf);
+        } else {
+          const text = new TextDecoder().decode(buf);
+          await loadText(text);
+        }
+      });
     });
   </script>
+
 </body>
 </html>
+
 
