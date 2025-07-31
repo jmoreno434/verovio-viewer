@@ -2,125 +2,77 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Verovio – Visor simple</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root { --pad: 16px; }
-    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #fafafa; }
-    header { padding: var(--pad); background: #fff; border-bottom: 1px solid #ddd; position: sticky; top: 0; }
-    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    #score { margin: var(--pad); min-height: 400px; background: #fff; border: 1px solid #ddd; }
-    .status { font-size: 14px; color: #555; min-height: 1.2em; }
-    button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
-  </style>
-
-  <!-- 1) Redirige SOLO el .wasm a la MISMA versión del JS local -->
+  <title>MusicXML → SVG con Verovio</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Toolkit JS (misma carpeta que su .wasm en el CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/verovio@5.4.0/dist/verovio-toolkit-wasm.js" defer></script>
   <script>
+    // (opcional) ver qué URL usará para el .wasm
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-
-    // Usa la misma versión que tu JS local. Ejemplo: 5.4.0:
-    const WASM_BASE = 'https://www.verovio.org/javascript/5.4.0/';
-
-    verovio.module.locateFile = (path, prefix) => {
-      if (path.endsWith('.wasm')) {
-        const url = WASM_BASE + path; // p.ej. .../verovio-toolkit-wasm.wasm
-        console.log('[Verovio locateFile] .wasm →', url);
-        return url;
-      }
-      // el resto (JS auxiliares) se resuelven normal
-      return (prefix || '') + path;
-    };
+    verovio.module.locateFile = (path, prefix) => (prefix || '') + path;
   </script>
-
-  <!-- 2) TU toolkit JS local (en la raíz). Importante: NO type="module" -->
-  <script src="verovio-toolkit-wasm.js" defer></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; }
+    #out { border: 1px solid #ddd; background:#fff; min-height: 200px; }
+  </style>
 </head>
 <body>
-  <header class="row">
-    <label>Archivo: <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl" /></label>
-    <button id="btnLoad">Cargar</button>
-    <button id="btnDemo">Ejemplo</button>
-    <span id="status" class="status">Inicializando Verovio…</span>
-  </header>
-
-  <div id="score"></div>
+  <h1>MusicXML → SVG</h1>
+  <div id="out">SVG aquí…</div>
 
   <script>
-    // Ejemplo MusicXML embebido (sin fetch externo)
-    const DEMO = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
-<score-partwise version="3.1">
-  <part-list><score-part id="P1"><part-name>Demo</part-name></score-part></part-list>
-  <part id="P1"><measure number="1">
-    <attributes><divisions>1</divisions><key><fifths>0</fifths></key>
-      <time><beats>4</beats><beat-type>4</beat-type></time>
-      <clef><sign>G</sign><line>2</line></clef>
-    </attributes>
-    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-    <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
-    <note><rest/><duration>1</duration><type>quarter</type></note>
-  </measure></part>
-</score-partwise>`;
-
-    const $file = document.getElementById('file');
-    const $btnLoad = document.getElementById('btnLoad');
-    const $btnDemo = document.getElementById('btnDemo');
-    const $status = document.getElementById('status');
-    const $score = document.getElementById('score');
-
-    let tk = null;
-    const setStatus = (m='') => $status.textContent = m;
-    const isMXL = (n='') => n.toLowerCase().endsWith('.mxl');
-
-    // Watchdog si el .wasm no carga
-    const watchdog = setTimeout(() => {
-      setStatus('Verovio no se pudo inicializar. Revisa Network → filtro "wasm" y que la URL devuelva 200.');
-    }, 9000);
-
-    // Patrón oficial: crear toolkit cuando el runtime esté listo
-    document.addEventListener("DOMContentLoaded", () => {
+    // 1) Esperar a que WASM esté listo y crear el toolkit
+    const tkReady = new Promise((resolve) => {
       verovio.module.onRuntimeInitialized = () => {
-        clearTimeout(watchdog);
-        tk = new verovio.toolkit({ scale: 40, pageWidth: 2100, pageHeight: 2970 });
-        setStatus('Listo. Carga un archivo o usa el ejemplo.');
+        const tk = new verovio.toolkit({
+          // Opciones básicas de layout; ajusta a tu gusto
+          pageWidth: 2100,      // "A4" en décimas de mm aprox.
+          pageHeight: 2970,
+          scale: 40             // zoom (100 = tamaño base)
+        });
+        resolve(tk);
       };
     });
 
-    function render() {
-      const svg = tk.renderToSVG(1, {});
-      $score.innerHTML = svg;
+    // 2) Función utilitaria: MusicXML (string) → SVG (string)
+    async function musicxmlToSvg(xmlString, { page = 1, options = {} } = {}) {
+      const tk = await tkReady;
+      if (options && Object.keys(options).length) tk.setOptions(options);
+      // Verovio auto-detecta el formato; MusicXML es válido aquí
+      // También puedes forzar opciones de entrada si quieres.
+      tk.loadData(xmlString);
+      return tk.renderToSVG(page, {}); // página 1 por defecto
     }
 
-    async function loadText(text) { tk.loadData(text); render(); }
-    async function loadMXL(buffer) {
-      const bytes = new Uint8Array(buffer);
-      const ok = tk.loadZipDataBuffer(bytes, bytes.length);
-      if (!ok) return setStatus('MXL no reconocido.');
-      render();
-    }
+    // --- DEMO: probar con un MusicXML corto embebido ---
+    const DEMO_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Demo</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><rest/><duration>1</duration><type>quarter</type></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+</score-partwise>`;
 
-    $btnLoad.addEventListener('click', async () => {
-      const f = $file.files?.[0];
-      if (!f) return setStatus('Selecciona un archivo primero.');
-      setStatus('Cargando…');
-      try {
-        if (isMXL(f.name)) await loadMXL(await f.arrayBuffer());
-        else await loadText(await f.text());
-        setStatus('Listo');
-      } catch (e) { console.error(e); setStatus('Error: ' + (e?.message || e)); }
-    });
-
-    $btnDemo.addEventListener('click', async () => {
-      if (!tk) return;
-      setStatus('Cargando ejemplo…');
-      try { await loadText(DEMO); setStatus('Listo'); }
-      catch (e) { console.error(e); setStatus('Error al cargar ejemplo.'); }
-    });
+    (async () => {
+      const svg = await musicxmlToSvg(DEMO_XML);
+      document.getElementById('out').innerHTML = svg;
+    })();
   </script>
 </body>
 </html>
+
 
 
 
