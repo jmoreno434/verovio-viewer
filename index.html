@@ -2,102 +2,172 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>MusicXML/MXL → SVG + Instrumentos</title>
+  <title>MusicXML/MXL → SVG con Verovio + Reproductor</title>
 
-  <!-- Verovio WASM por CDN -->
+  <!-- 1) Verovio WASM por CDN -->
   <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
 
-  <!-- Tone.js por CDN -->
+  <!-- 2) Tone.js por CDN -->
   <script src="https://unpkg.com/tone@15.1.22/build/Tone.js"></script>
 
-  <!-- Librería de instrumentos para Tone.js -->
+  <!-- 3) Librería de instrumentos para Tone.js -->
   <script src="https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/Tonejs-Instruments.js"></script>
 
   <style>
     body { font-family: sans-serif; margin: 1rem; }
-    #notation { border:1px solid #ddd; padding:1rem; min-height:200px; }
-    .controls { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+    #notation { border: 1px solid #ddd; padding: 1rem; min-height:200px; }
+    .controls { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; margin-bottom:1rem; }
     button, input, select { padding:0.4rem 0.8rem; }
   </style>
 </head>
 <body>
-  <h1>Visor + Reproductor de MusicXML</h1>
+  <h1>MusicXML/MXL → SVG con Verovio + Reproductor</h1>
+
+  <!-- Archivo, render y configuración -->
   <div class="controls">
     <input id="fileInput" type="file" accept=".xml,.musicxml,.mxl" />
     <button id="renderBtn" disabled>Renderizar</button>
+    <span id="info"></span>
+  </div>
+
+  <!-- Paginación -->
+  <div class="controls">
+    <button id="prevBtn" disabled>← Anterior</button>
+    <span>Página <span id="pageNow">1</span> / <span id="pageMax">1</span></span>
+    <button id="nextBtn" disabled>Siguiente →</button>
+  </div>
+
+  <!-- Escala -->
+  <div class="controls">
+    <label for="scaleInput">Escala (%)</label>
+    <input id="scaleInput" type="number" value="60" min="10" max="200" step="5" />
+    <button id="applyScale" disabled>Aplicar</button>
+  </div>
+
+  <!-- Selector de instrumento -->
+  <div class="controls">
+    <label for="instrumentSelect">Instrumento</label>
     <select id="instrumentSelect">
       <option value="piano">Piano</option>
       <option value="guitar-electric">Guitarra Eléctrica</option>
+      <!-- Agrega más opciones si lo deseas -->
     </select>
     <button id="loadInstBtn" disabled>Cargar Instrumento</button>
+  </div>
+
+  <!-- Reproducción -->
+  <div class="controls">
     <button id="playBtn" disabled>Reproducir</button>
     <button id="stopBtn" disabled>Detener</button>
   </div>
+
+  <!-- Contenedor SVG -->
   <div id="notation"></div>
 
   <script>
     const $ = id => document.getElementById(id);
+
     let toolkit, dataBuffer, isZip = false;
+    let currentPage = 1, totalPages = 1;
     let instrumentObj = null, synthFallback = null;
 
     // Inicializar Verovio
     document.addEventListener('DOMContentLoaded', () => {
       verovio.module.onRuntimeInitialized = () => {
         toolkit = new verovio.toolkit();
-        ['renderBtn','loadInstBtn','playBtn','stopBtn'].forEach(id => $(id).disabled = false);
+        ['renderBtn','applyScale','loadInstBtn','playBtn','stopBtn']
+          .forEach(id => $(id).disabled = false);
         synthFallback = new Tone.Synth().toDestination();
       };
     });
 
-    // Leer archivo
+    // Leer archivo MusicXML/MXL
     $('fileInput').addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
       isZip = /\.mxl$/i.test(file.name);
+      $('info').textContent = `Archivo: ${file.name}`;
       const reader = new FileReader();
       reader.onload = () => dataBuffer = reader.result;
-      if (isZip) reader.readAsArrayBuffer(file);
-      else reader.readAsText(file);
+      isZip ? reader.readAsArrayBuffer(file) : reader.readAsText(file);
     });
 
-    // Renderizar SVG
-    $('renderBtn').addEventListener('click', () => {
+    // Aplicar opciones de render
+    function applyOptions() {
+      toolkit.setOptions({
+        pageWidth: 2000,
+        pageHeight: 2600,
+        scale: parseInt($('scaleInput').value, 10)
+      });
+    }
+
+    // Render inicial
+    function renderInitial() {
       if (!dataBuffer) return;
-      toolkit.setOptions({ scale: 60 });
+      applyOptions();
       if (isZip) {
-        toolkit.loadZipDataBuffer(new Uint8Array(dataBuffer), dataBuffer.byteLength);
+        toolkit.loadZipDataBuffer(
+          new Uint8Array(dataBuffer),
+          dataBuffer.byteLength
+        );
       } else {
         toolkit.loadData(dataBuffer);
       }
-      $('notation').innerHTML = toolkit.renderToSVG(1);
-    });
+      totalPages = toolkit.getPageCount();
+      currentPage = 1;
+      $('pageMax').textContent = totalPages;
+      $('prevBtn').disabled = totalPages <= 1;
+      $('nextBtn').disabled = totalPages <= 1;
+      $('notation').innerHTML = toolkit.renderToSVG(currentPage);
+      $('pageNow').textContent = currentPage;
+    }
 
-    // Cargar instrumento
-    $('loadInstBtn').addEventListener('click', () => {
+    // Navegar páginas
+    function renderPage(page) {
+      if (page < 1 || page > totalPages) return;
+      $('notation').innerHTML = toolkit.renderToSVG(page);
+      currentPage = page;
+      $('pageNow').textContent = currentPage;
+    }
+
+    // Eventos de render y paginación
+    $('renderBtn').onclick  = renderInitial;
+    $('prevBtn').onclick    = () => renderPage(currentPage - 1);
+    $('nextBtn').onclick    = () => renderPage(currentPage + 1);
+    $('applyScale').onclick = () => { applyOptions(); renderPage(currentPage); };
+
+    // Cargar instrumento con baseUrl corregido
+    $('loadInstBtn').onclick = () => {
       const inst = $('instrumentSelect').value;
       instrumentObj = SampleLibrary.load({
         instruments: inst,
         baseUrl: 'https://nbrosowsky.github.io/tonejs-instruments/samples/'
       });
       instrumentObj.toDestination();
-    });
+    };
 
-    // Programar reproducción
+    // Configurar synth de respaldo y transport
+    synthFallback = new Tone.Synth().toDestination();
     Tone.Transport.bpm.value = 120;
+
+    // Programar reproducción de notas
     function schedulePlayback(xmlString) {
       const xmlDoc = new DOMParser().parseFromString(xmlString, "application/xml");
       const divisions = parseFloat(xmlDoc.querySelector("divisions")?.textContent || "1");
       let time = 0;
       xmlDoc.querySelectorAll("note").forEach(noteEl => {
         if (noteEl.querySelector("rest")) return;
-        const step = noteEl.querySelector("step")?.textContent || "C";
-        const alter = noteEl.querySelector("alter")?.textContent || "0";
-        const octave = noteEl.querySelector("octave")?.textContent || "4";
+        const step    = noteEl.querySelector("step")?.textContent   || "C";
+        const alter   = noteEl.querySelector("alter")?.textContent  || "0";
+        const octave  = noteEl.querySelector("octave")?.textContent || "4";
         const accidental = alter === "1" ? "#" : alter === "-1" ? "b" : "";
-        const pitch = `${step}${accidental}${octave}`;
+        const pitch   = `${step}${accidental}${octave}`;
         const durDivs = parseFloat(noteEl.querySelector("duration")?.textContent || divisions);
-        const ratio = durDivs / divisions;
-        const durVal = ratio >= 1 ? "4n" : ratio >= 0.5 ? "8n" : ratio >= 0.25 ? "16n" : "32n";
+        const ratio   = durDivs / divisions;
+        const durVal  = ratio >= 1    ? "4n"
+                         : ratio >= 0.5 ? "8n"
+                         : ratio >= 0.25? "16n"
+                                         : "32n";
 
         Tone.Transport.schedule((t) => {
           const player = instrumentObj || synthFallback;
@@ -108,17 +178,18 @@
       });
     }
 
-    // Reproducir y detener
-    $('playBtn').addEventListener('click', async () => {
+    // Play / Stop
+    $('playBtn').onclick = async () => {
       if (!dataBuffer) return;
-      await Tone.start();
+      await Tone.start();             // reanuda AudioContext tras gesto
       schedulePlayback(dataBuffer);
-      Tone.Transport.start();
-    });
-    $('stopBtn').addEventListener('click', () => {
+      // Esperar buffers antes de iniciar
+      Tone.Buffer.on('load', () => Tone.Transport.start());
+    };
+    $('stopBtn').onclick = () => {
       Tone.Transport.stop();
       Tone.Transport.cancel(0);
-    });
+    };
   </script>
 </body>
 </html>
