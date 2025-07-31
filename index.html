@@ -2,29 +2,39 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Verovio – Visor simple</title>
+  <title>Verovio – Visor simple (MEI / MusicXML / MXL)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { margin:0; font-family: system-ui, Arial, sans-serif; background:#fafafa; }
-    header { padding:16px; background:#fff; border-bottom:1px solid #ddd; }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    #score { margin:16px; min-height:400px; background:#fff; border:1px solid #ddd; }
-    .status { font-size:14px; color:#555; min-height:1.2em; }
+    :root { --pad: 16px; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #fafafa; }
+    header { padding: var(--pad); background: #fff; border-bottom: 1px solid #ddd; position: sticky; top: 0; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    #score { margin: var(--pad); min-height: 400px; background: #fff; border: 1px solid #ddd; }
+    .status { font-size: 14px; color: #555; min-height: 1.2em; }
+    button { padding: 8px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
   </style>
 
-  <!-- 1) Indica dónde está el .wasm (en la raíz) -->
+  <!-- CARGA OFICIAL (recomendada por la documentación) -->
+  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
+
+  <!-- (Opcional pero útil) Forzamos que el .wasm se busque en esa misma URL -->
   <script>
     window.verovio = window.verovio || {};
     verovio.module = verovio.module || {};
-    verovio.module.locateFile = (path) => path; // p.ej. "verovio-toolkit-wasm.wasm"
+    verovio.module.locateFile = (path, prefix) => {
+      if (path.endsWith('.wasm')) {
+        // El .wasm se descargará desde el mismo directorio "latest" en verovio.org
+        return 'https://www.verovio.org/javascript/latest/' + path;
+      }
+      return path;
+    };
   </script>
-
-  <!-- 2) Toolkit JS (en la raíz) -->
-  <script src="verovio-toolkit-wasm.js" defer></script>
 </head>
 <body>
   <header class="row">
-    <label>Archivo: <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl"></label>
+    <label>Archivo:
+      <input id="file" type="file" accept=".mei,.xml,.musicxml,.mxl" />
+    </label>
     <button id="btnLoad">Cargar</button>
     <button id="btnDemo">Ejemplo</button>
     <span id="status" class="status">Inicializando Verovio…</span>
@@ -33,6 +43,7 @@
   <div id="score"></div>
 
   <script>
+    // --- Ejemplo MusicXML incrustado (sin fetch externo) ---
     const DEMO = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="3.1">
@@ -53,26 +64,26 @@
     const $score = document.getElementById('score');
 
     let tk = null;
-
     const setStatus = (m='') => $status.textContent = m;
     const isMXL = (n='') => n.toLowerCase().endsWith('.mxl');
 
-    // Aviso si el .wasm no cargó (ver Network → filter "wasm")
+    // Watchdog para detectar si el .wasm no cargó por alguna razón
     const watchdog = setTimeout(() => {
-      setStatus('⚠️ Verovio no se pudo inicializar. Sube "verovio-toolkit-wasm.wasm" a la raíz o ajusta locateFile.');
-    }, 8000);
+      setStatus('⚠️ Verovio no se pudo inicializar. Revisa la pestaña Network → filtro "wasm".');
+    }, 8500);
 
-    // Cuando el WASM está listo
-    window.verovio = window.verovio || {};
-    verovio.module = verovio.module || {};
-    verovio.module.onRuntimeInitialized = () => {
-      clearTimeout(watchdog);
-      tk = new verovio.toolkit({ scale: 40, pageWidth: 2100, pageHeight: 2970 });
-      setStatus('Listo. Carga un archivo o usa el ejemplo.');
-    };
+    // La guía oficial indica escuchar onRuntimeInitialized antes de crear el toolkit
+    // https://book.verovio.org/first-steps/getting-started.html
+    document.addEventListener("DOMContentLoaded", () => {
+      verovio.module.onRuntimeInitialized = () => {
+        clearTimeout(watchdog);
+        tk = new verovio.toolkit({ scale: 40, pageWidth: 2100, pageHeight: 2970 });
+        setStatus('Listo. Carga un archivo o usa el ejemplo.');
+      };
+    });
 
     function render() {
-      const svg = tk.renderToSVG(1, {});
+      const svg = tk.renderToSVG(1, {}); // primera página
       $score.innerHTML = svg;
     }
 
@@ -98,11 +109,12 @@
     $btnDemo.addEventListener('click', async () => {
       if (!tk) return;
       setStatus('Cargando ejemplo…');
-      try { await loadText(DEMO); setStatus('Listo'); } 
+      try { await loadText(DEMO); setStatus('Listo'); }
       catch (e) { console.error(e); setStatus('Error al cargar ejemplo.'); }
     });
   </script>
 </body>
 </html>
+
 
 
