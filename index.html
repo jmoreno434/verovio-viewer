@@ -2,90 +2,35 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>MusicXML → SVG con Verovio</title>
-  <!-- 1) Incluye Verovio WASM desde el CDN oficial -->
-  <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"></script>
+  <title>Ejemplo OpenSheetMusicDisplay</title>
+  <!-- Incluir OSMD desde jsDelivr (versión 1.9.0, BSD-3-Clause) -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.0/build/opensheetmusicdisplay.min.js"></script> :contentReference[oaicite:0]{index=0}
   <style>
-    body { font-family: sans-serif; margin: 2rem; }
-    #notation { margin-top: 1rem; border: 1px solid #ccc; padding: 1rem; }
-    button { margin: 0.5rem 0.25rem; }
+    body { font-family: sans-serif; padding: 1rem; }
+    #sheet { border: 1px solid #ccc; padding: 1rem; }
   </style>
 </head>
 <body>
 
-  <h1>Convertir MusicXML a SVG</h1>
-
-  <!-- 2) Selector de archivo MusicXML -->
-  <input id="fileInput" type="file" accept=".xml,.musicxml" />
-  
-  <!-- 3) Controles de paginación -->
-  <div id="controls" style="display:none;">
-    <button id="prevPage">← Página anterior</button>
-    <span>Página <span id="currentPage">1</span></span>
-    <button id="nextPage">Página siguiente →</button>
-  </div>
-
-  <!-- 4) Contenedor donde se insertará el SVG -->
-  <div id="notation"></div>
+  <h1>Renderizando MusicXML con OSMD</h1>
+  <!-- Contenedor donde se insertará el SVG -->
+  <div id="sheet"></div>
 
   <script>
-    // 5) Crear la instancia de Verovio
-    const vrvToolkit = new verovio.Toolkit();
+    // Esperar a que el DOM esté listo
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1) Crear instancia: recibe un elemento DOM
+      const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
+        document.getElementById("sheet")
+      );
 
-    let currentXml = "";      // Aquí guardamos el MusicXML cargado
-    let currentPage = 1;      // Página actual
-    let totalPages = 1;       // Número de páginas del documento
-
-    const notationEl = document.getElementById('notation');
-    const controlsEl = document.getElementById('controls');
-    const currentPageEl = document.getElementById('currentPage');
-    const prevBtn = document.getElementById('prevPage');
-    const nextBtn = document.getElementById('nextPage');
-
-    // Función para renderizar la página `pageNum`
-    function renderPage(pageNum) {
-      // Opciones de renderizado: ajusta ancho, alto o escala si lo deseas
-      const options = {
-        page:       pageNum,
-        pageWidth:  800,
-        pageHeight: 1000,
-        scale:      60
-      };
-      // Renderizamos y obtenemos el SVG
-      const svg = vrvToolkit.renderData(currentXml, options);
-      notationEl.innerHTML = svg;
-      currentPageEl.textContent = pageNum;
-    }
-
-    // Manejo de carga de archivo por el usuario
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function() {
-        currentXml = reader.result;
-        // Carga los datos en el toolkit para poder consultar el número de páginas
-        vrvToolkit.loadData(currentXml);
-        totalPages = vrvToolkit.getPageCount();  // Verovio determina cuántas páginas
-        currentPage = 1;
-        controlsEl.style.display = totalPages > 1 ? "block" : "none";
-        renderPage(currentPage);
-      };
-      reader.readAsText(file);
-    });
-
-    // Botones de navegación
-    prevBtn.addEventListener('click', () => {
-      if (currentPage > 1) {
-        currentPage--;
-        renderPage(currentPage);
-      }
-    });
-    nextBtn.addEventListener('click', () => {
-      if (currentPage < totalPages) {
-        currentPage++;
-        renderPage(currentPage);
-      }
+      // 2) Cargar un archivo MusicXML (ruta relativa o absoluta)
+      osmd.load("ruta/a/tu/archivo.musicxml").then(() => {
+        // 3) Renderizar el SVG una vez cargado
+        osmd.render();
+      }).catch(err => {
+        console.error("Error cargando MusicXML:", err);
+      });
     });
   </script>
 
